@@ -1,0 +1,168 @@
+"""
+Core observability module for Venus OS.
+
+Provides OpenTelemetry initialization, D-Bus signal tracing, and Prometheus metrics export.
+"""
+
+import logging
+import os
+from contextlib import contextmanager
+
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from opentelemetry.instrumentation.paho_mqtt import PahoMqttInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from prometheus_client import start_http_server
+
+from .dbus_listener import DBusSignalListener
+from .metrics import VictronMetrics
+
+logger = logging.getLogger(__name__)
+
+
+def setup_telemetry(
+    service_name: str = "venus-os-observability",
+    otlp_endpoint: str | None = None,
+    prometheus_port: int = 9090,
+) -> tuple[TracerProvider, MeterProvider]:
+    """Initialize OpenTelemetry tracing and metrics.
+
+    Args:
+        service_name: Service name for traces/metrics
+        otlp_endpoint: OTLP gRPC endpoint (e.g., http://tempo:4317). If None, skips trace export.
+        prometheus_port: Port for Prometheus metrics HTTP server
+
+    Returns:
+        Tuple of (TracerProvider, MeterProvider)
+    """
+    # Resource with service info
+    resource = Resource.create({SERVICE_NAME: service_name})
+
+    # Tracing
+    tracer_provider = TracerProvider(resource=resource)
+    trace.set_tracer_provider(tracer_provider)
+
+    if otlp_endpoint:
+        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        logger.info("OTLP trace exporter configured: %s", otlp_endpoint)
+
+    # Metrics - Prometheus
+    prometheus_reader = PrometheusMetricReader()
+    meter_provider = MeterProvider(resource=resource, metric_readers=[prometheus_reader])
+
+    # Start Prometheus HTTP server
+    start_http_server(prometheus_port)
+    logger.info("Prometheus metrics server started on port %d", prometheus_port)
+
+    # Instrument MQTT client
+    PahoMqttInstrumentor().instrument()
+
+    return tracer_provider, meter_provider
+
+
+class ObservabilityService:
+    """Main observability service coordinating D-Bus listener, metrics, and tracing."""
+
+    def __init__(
+        self,
+        dbus_address: str = "unix:path=/var/run/dbus/system_bus_socket",
+        otlp_endpoint: str | None = None,
+        prometheus_port: int = 9090,
+        service_name: str = "venus-os-observability",
+    ):
+        self.dbus_address = dbus_address
+        self.otlp_endpoint = otlp_endpoint
+        self.prometheus_port = prometheus_port
+        self.service_name = service_name
+
+        self._tracer_provider: TracerProvider | None = None
+        self._meter_provider: MeterProvider | None = None
+        self._dbus_listener: DBusSignalListener | None = None
+        self._metrics: VictronMetrics | None = None
+
+    def start(self) -> None:
+        """Start all observability components."""
+        logger.info("Starting %s observability service", self.service_name)
+
+        # Initialize telemetry
+        self._tracer_provider, self._meter_provider = setup_telemetry(
+            service_name=self.service_name,
+            otlp_endpoint=self.otlp_endpoint,
+            prometheus_port=self.prometheus_port,
+        )
+
+        # Initialize metrics
+        self._metrics = VictronMetrics(self._meter_provider.get_meter(self.service_name))
+
+        # Initialize D-Bus listener with metrics callback
+        self._dbus_listener = DBusSignalListener(
+            bus_address=self.dbus_address,
+            metrics_callback=self._metrics.update_from_dbus,
+            tracer=self._tracer_provider.get_tracer(self.service_name),
+        )
+
+        # Start D-Bus listener
+        self._dbus_listener.start()
+        logger.info("Observability service started")
+
+    def stop(self) -> None:
+        """Stop all observability components."""
+        logger.info("Stopping observability service")
+        if self._dbus_listener:
+            self._dbus_listener.stop()
+        if self._tracer_provider:
+            self._tracer_provider.shutdown()
+        if self._meter_provider:
+            self._meter_provider.shutdown()
+        logger.info("Observability service stopped")
+
+    @contextmanager
+    def lifespan(self):
+        """Context manager for service lifecycle."""
+        self.start()
+        try:
+            yield self
+        finally:
+            self.stop()
+
+
+def main() -> None:
+    """CLI entry point."""
+    import signal
+    import sys
+
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    dbus_addr = os.getenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/var/run/dbus/system_bus_socket")
+    service = ObservabilityService(
+        dbus_address=dbus_addr,
+        otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        prometheus_port=int(os.getenv("PROMETHEUS_PORT", "9090")),
+        service_name=os.getenv("OTEL_SERVICE_NAME", "venus-os-observability"),
+    )
+
+    def signal_handler(signum, frame):
+        logger.info("Received signal %s, shutting down", signum)
+        service.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    with service.lifespan():
+        # Keep running
+        import time
+        while True:
+            time.sleep(60)
+
+
+if __name__ == "__main__":
+    main()
