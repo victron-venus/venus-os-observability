@@ -124,5 +124,6 @@ class TestVictronMetrics:
         # Attributes should be passed to gauge
         victron_metrics.battery_soc.set.assert_called_once()
         args, kwargs = victron_metrics.battery_soc.set.call_args
-        assert kwargs.get("attributes", {}).get("location") == "home"
-        assert kwargs.get("attributes", {}).get("serial") == "ttyO1"
+        # gauge.set(value, attributes) - attributes is 2nd positional arg
+        assert args[1].get("location") == "home"
+        assert args[1].get("serial") == "ttyO1"
