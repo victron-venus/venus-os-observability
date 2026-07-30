@@ -45,8 +45,8 @@ services:
 ### Venus OS Native
 
 ```bash
-# On Cerbo GX
-opkg install python3-opentelemetry
+# On Cerbo GX - install via pip (no opkg package available)
+pip install -e .
 # Copy service files to /etc/venus-os-observability/
 systemctl enable --now venus-os-observability
 ```
