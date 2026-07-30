@@ -21,11 +21,11 @@ graph LR
 - **Prometheus Metrics**: Export inverter state (SOC, power, grid, battery) as Prometheus metrics
 - **Distributed Tracing**: Correlation IDs propagated across MQTT → D-Bus → inverter-control
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
-- **Cerbo GX Ready**: Runs as native service on Venus OS or in Docker
+- **Cerbo GX Ready**: Runs as native service on Venus OS or in Docker (no pip required - offline wheel install)
 
 ## Quick Start
 
-### Docker Compose
+### Docker Compose (Recommended)
 
 ```yaml
 services:
@@ -42,13 +42,75 @@ services:
     restart: unless-stopped
 ```
 
-### Venus OS Native
+### Venus OS Native (Cerbo GX) - Offline Wheel Install
+
+Venus OS has no `pip` by default. Use the offline wheel bundle:
 
 ```bash
-# On Cerbo GX - install via pip (no opkg package available)
-pip install -e .
-# Copy service files to /etc/venus-os-observability/
+# On Cerbo GX (SSH as root)
+cd /tmp
+
+# 1. Download pre-built wheel bundle (ARMv7/aarch64 compatible)
+wget https://github.com/victron-venus/venus-os-observability/releases/latest/download/venus-os-observability-wheels.tar.gz
+
+# 2. Extract wheels
+tar -xzf venus-os-observability-wheels.tar.gz
+
+# 3. Install using Python's built-in wheel support (no pip needed)
+cd wheels
+python3 -m pip install --no-index --find-links=. venus_observability-*.whl
+
+# 4. Install dependencies from wheels
+python3 -m pip install --no-index --find-links=. \
+  opentelemetry_api-*.whl \
+  opentelemetry_sdk-*.whl \
+  opentelemetry_exporter_prometheus-*.whl \
+  opentelemetry_exporter_otlp-*.whl \
+  opentelemetry_instrumentation_requests-*.whl \
+  opentelemetry_instrumentation_paho_mqtt-*.whl \
+  prometheus_client-*.whl \
+  paho_mqtt-*.whl \
+  dbus_next-*.whl \
+  pyyaml-*.whl \
+  structlog-*.whl \
+  click-*.whl
+
+# 5. Copy service file and config
+cp /usr/local/lib/python3.*/site-packages/venus_observability/systemd/venus-os-observability.service /etc/systemd/system/
+mkdir -p /etc/venus-os-observability
+cp config.example.yaml /etc/venus-os-observability/config.yaml
+
+# 6. Enable and start
+systemctl daemon-reload
 systemctl enable --now venus-os-observability
+```
+
+#### If `python3 -m pip` fails (no pip module):
+
+```bash
+# Install pip first via opkg (if feed available)
+opkg update && opkg install python3-pip
+
+# OR manually bootstrap pip
+wget https://bootstrap.pypa.io/get-pip.py
+python3 get-pip.py --no-index --find-links=/tmp/wheels
+```
+
+### Build Wheel Bundle Locally (for release artifacts)
+
+```bash
+# On build machine (Linux ARM or cross-compile)
+pip install -e ".[dev]"
+pip wheel --no-deps --wheel-dir=./wheels .
+pip wheel --wheel-dir=./wheels \
+  opentelemetry-api opentelemetry-sdk opentelemetry-exporter-prometheus \
+  opentelemetry-exporter-otlp opentelemetry-instrumentation-requests \
+  opentelemetry-instrumentation-paho-mqtt prometheus-client paho-mqtt \
+  dbus-next pyyaml structlog click
+
+# Create release tarball
+tar -czf venus-os-observability-wheels.tar.gz wheels/
+# Upload to GitHub Releases
 ```
 
 ## Configuration

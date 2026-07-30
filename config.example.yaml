@@ -1,0 +1,61 @@
+# Venus OS Observability Configuration
+# Copy to /etc/venus-os-observability/config.yaml
+
+# D-Bus connection
+dbus:
+  system_bus_address: "unix:path=/var/run/dbus/system_bus_socket"
+
+# OpenTelemetry
+otel:
+  service_name: "venus-os-observability"
+  otlp_endpoint: "http://tempo:4317"  # or https://your-tempo:4317
+  # otlp_endpoint: ""  # disable tracing export
+
+# Prometheus metrics
+prometheus:
+  port: 9090
+  host: "0.0.0.0"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "json"  # or "text"
+
+# D-Bus services to monitor (auto-discovered if empty)
+services:
+  - "com.victronenergy.battery.*"
+  - "com.victronenergy.solarcharger.*"
+  - "com.victronenergy.vebus.*"
+  - "com.victronenergy.grid.*"
+  - "com.victronenergy.system"
+
+# Known paths per service type (used for auto-subscription)
+known_paths:
+  battery:
+    - "/Soc"
+    - "/Dc/0/Voltage"
+    - "/Dc/0/Current"
+    - "/Dc/0/Power"
+    - "/Dc/0/Temperature"
+    - "/CustomName"
+    - "/Cell/*/Volts"
+  solarcharger:
+    - "/Yield/Power"
+    - "/Dc/0/Voltage"
+    - "/Dc/0/Current"
+    - "/Dc/0/Power"
+  vebus:
+    - "/State"
+    - "/Ac/Out/L1/P"
+    - "/Ac/Grid/L1/P"
+    - "/Dc/0/Voltage"
+  grid:
+    - "/Ac/Power"
+    - "/Ac/L1/Power"
+  system:
+    - "/Dc/Battery/Soc"
+    - "/Dc/Battery/Voltage"
+    - "/Dc/Battery/Current"
+    - "/Dc/Pv/Power"
+    - "/Ac/Loads/Power"
+    - "/Ac/Grid/Power"
