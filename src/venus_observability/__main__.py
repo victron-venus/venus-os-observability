@@ -6,7 +6,9 @@ Provides OpenTelemetry initialization, D-Bus signal tracing, and Prometheus metr
 
 import logging
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
+from types import FrameType
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -99,10 +101,9 @@ class ObservabilityService:
         # Initialize metrics
         self._metrics = VictronMetrics(self._meter_provider.get_meter(self.service_name))
 
-        # Initialize D-Bus listener with metrics callback
+        # Initialize D-Bus listener
         self._dbus_listener = DBusSignalListener(
-            bus_address=self.dbus_address,
-            metrics_callback=self._metrics.update_from_dbus,
+            metrics=self._metrics,
             tracer=self._tracer_provider.get_tracer(self.service_name),
         )
 
@@ -116,13 +117,13 @@ class ObservabilityService:
         if self._dbus_listener:
             self._dbus_listener.stop()
         if self._tracer_provider:
-            self._tracer_provider.shutdown()
+            self._tracer_provider.shutdown()  # type: ignore[no-untyped-call]
         if self._meter_provider:
             self._meter_provider.shutdown()
         logger.info("Observability service stopped")
 
     @contextmanager
-    def lifespan(self):
+    def lifespan(self) -> Iterator["ObservabilityService"]:
         """Context manager for service lifecycle."""
         self.start()
         try:
@@ -149,7 +150,7 @@ def main() -> None:
         service_name=os.getenv("OTEL_SERVICE_NAME", "venus-os-observability"),
     )
 
-    def signal_handler(signum, frame):
+    def signal_handler(signum: int, frame: FrameType | None) -> None:
         logger.info("Received signal %s, shutting down", signum)
         service.stop()
         sys.exit(0)
