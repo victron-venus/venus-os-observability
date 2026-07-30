@@ -5,7 +5,7 @@ D-Bus signal listener for Victron devices with OpenTelemetry tracing.
 import logging
 import time
 from contextlib import contextmanager, suppress
-from typing import Any, Optional
+from typing import Any
 
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
