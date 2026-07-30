@@ -5,6 +5,7 @@ D-Bus signal listener for Victron devices with OpenTelemetry tracing.
 import logging
 import time
 from contextlib import contextmanager, suppress
+from typing import Any, Optional
 
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
@@ -114,7 +115,7 @@ class DBusSignalListener:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
                 raise
 
-    def _handle_value(self, service: str, path: str, value, span: Span) -> None:
+    def _handle_value(self, service: str, path: str, value: Any, span: Span) -> None:
         """Process a single D-Bus value update."""
         start_time = time.perf_counter()
 
