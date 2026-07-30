@@ -1,9 +1,11 @@
 """Pytest configuration and fixtures."""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
 from opentelemetry.metrics import Meter
+
+from venus_observability.metrics import VictronMetrics
 
 
 @pytest.fixture
@@ -17,7 +19,6 @@ def mock_meter() -> MagicMock:
 
 
 @pytest.fixture
-def victron_metrics(mock_meter) -> "VictronMetrics":
+def victron_metrics(mock_meter: MagicMock) -> VictronMetrics:
     """Create VictronMetrics instance with mock meter."""
-    from venus_observability.metrics import VictronMetrics
     return VictronMetrics(mock_meter)

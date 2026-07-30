@@ -1,0 +1,31 @@
+[Unit]
+Description=Venus OS Observability - OpenTelemetry/Prometheus for Victron
+After=network.target dbus.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/venus-os-observability
+ExecStart=/usr/bin/python3 -m venus_observability
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+Environment=PROMETHEUS_PORT=9090
+Environment=OTEL_SERVICE_NAME=venus-os-observability
+Environment=LOG_LEVEL=INFO
+EnvironmentFile=-/etc/venus-os-observability/env
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/etc/venus-os-observability /var/log/venus-os-observability
+
+[Install]
+WantedBy=multi-user.target
