@@ -1,0 +1,35 @@
+name: Venus OS Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  ipk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .ipk package
+        run: |
+          docker run --rm -v "$PWD:/src" victron/venus-sdk:latest \
+            /bin/bash -c "cd /src/packaging/venus-os/venus-os-observability && make -f Makefile"
+      - name: Find .ipk artifact
+        id: find-ipk
+        run: |
+          IPK_FILE=$(find . -name "*.ipk" | head -1)
+          if [ -z "$IPK_FILE" ]; then
+            echo "error: No .ipk file found" >&2
+            exit 1
+          fi
+          echo "ipk_file=$IPK_FILE" >> $GITHUB_OUTPUT
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: venus-os-observability.ipk
+          path: ${{ steps.find-ipk.outputs.ipk_file }}
+      - name: Upload to Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.find-ipk.outputs.ipk_file }}
