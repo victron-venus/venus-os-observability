@@ -127,3 +127,4 @@ class TestVictronMetrics:
         # gauge.set(value, attributes) - attributes is 2nd positional arg
         assert args[1].get("location") == "home"
         assert args[1].get("serial") == "ttyO1"
+
