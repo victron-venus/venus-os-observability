@@ -164,17 +164,28 @@ class VictronServiceDiscovery:
 
     KNOWN_SERVICES = {
         "battery": [
-            "/Soc", "/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
-            "/Dc/0/Temperature", "/CustomName",
+            "/Soc",
+            "/Dc/0/Voltage",
+            "/Dc/0/Current",
+            "/Dc/0/Power",
+            "/Dc/0/Temperature",
+            "/CustomName",
         ],
         "solarcharger": [
-            "/Yield/Power", "/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
+            "/Yield/Power",
+            "/Dc/0/Voltage",
+            "/Dc/0/Current",
+            "/Dc/0/Power",
         ],
         "vebus": [
-            "/State", "/Ac/Out/L1/P", "/Ac/Grid/L1/P", "/Dc/0/Voltage",
+            "/State",
+            "/Ac/Out/L1/P",
+            "/Ac/Grid/L1/P",
+            "/Dc/0/Voltage",
         ],
         "grid": [
-            "/Ac/Power", "/Ac/L1/Power",
+            "/Ac/Power",
+            "/Ac/L1/Power",
         ],
     }
 
@@ -209,6 +220,7 @@ class VictronServiceDiscovery:
             obj = self.bus.get_object(service, "/")
             xml = obj.Introspect(dbus_interface="org.freedesktop.DBus.Introspectable")
             import xml.etree.ElementTree as ET
+
             root = ET.fromstring(xml)
             for node in root.findall(".//node"):
                 node_name = node.get("name")
@@ -243,4 +255,3 @@ async def create_listener(metrics: VictronMetrics) -> DBusSignalListener:
                 listener.subscribe(service, path)
 
     return listener
-

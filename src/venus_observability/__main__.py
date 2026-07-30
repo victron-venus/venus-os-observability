@@ -160,6 +160,7 @@ def main() -> None:
     with service.lifespan():
         # Keep running
         import time
+
         while True:
             time.sleep(60)
 
