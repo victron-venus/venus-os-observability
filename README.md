@@ -51,26 +51,16 @@ Venus OS has no `pip` by default. Use the offline wheel bundle:
 cd /tmp
 
 # 1. Download pre-built wheel bundle (ARMv7/aarch64 compatible)
-wget https://github.com/victron-venus/venus-os-observability/releases/latest/download/venus-os-observability-wheels.tar.gz
+wget https://github.com/victron-venus/venus-os-observability/releases/download/v0.1.0/venus-os-observability-0.1.0-wheels.tar.gz
 
 # 2. Extract wheels
-tar -xzf venus-os-observability-wheels.tar.gz
+tar -xzf venus-os-observability-0.1.0-wheels.tar.gz
 
 # 3. Install using Python's built-in wheel support (no pip needed)
-cd wheels
-python3 -m pip install --no-index --find-links=. venus_observability-*.whl
-
-# 4. Install dependencies from wheels
-python3 -m pip install --no-index --find-links=. \
-  opentelemetry_api-*.whl \
-  opentelemetry_sdk-*.whl \
-  opentelemetry_exporter_prometheus-*.whl \
-  opentelemetry_exporter_otlp-*.whl \
-  opentelemetry_instrumentation_requests-*.whl \
-  opentelemetry_instrumentation_paho_mqtt-*.whl \
-  prometheus_client-*.whl \
-  paho_mqtt-*.whl \
-  dbus_next-*.whl \
+cd release
+python3 -m pip install --no-index --find-links=. -r requirements.txt
+python3 -m pip install --no-index --find-links=. venus_os_observability-0.1.0-py3-none-any.whl
+```
   pyyaml-*.whl \
   structlog-*.whl \
   click-*.whl
