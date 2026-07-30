@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 dependencies = [
     "opentelemetry-api>=1.28,<1.29",
     "opentelemetry-sdk>=1.28,<1.29",
-    "opentelemetry-exporter-prometheus>=0.57b0,<0.60",
+    "opentelemetry-exporter-prometheus==0.56b0",
     "opentelemetry-exporter-otlp>=1.28,<1.29",
     "opentelemetry-exporter-otlp-proto-grpc>=1.28,<1.29",
     "opentelemetry-instrumentation>=0.49b0,<0.50",
