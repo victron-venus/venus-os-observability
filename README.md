@@ -51,15 +51,22 @@ Venus OS has no `pip` by default. Use the offline wheel bundle:
 cd /tmp
 
 # 1. Download pre-built wheel bundle (ARMv7/aarch64 compatible)
-wget https://github.com/victron-venus/venus-os-observability/releases/download/v0.1.0/venus-os-observability-0.1.0-wheels.tar.gz
+wget https://github.com/victron-venus/venus-os-observability/releases/download/v0.1.0/venus-os-observability-wheels.tar.gz
 
 # 2. Extract wheels
-tar -xzf venus-os-observability-0.1.0-wheels.tar.gz
+tar -xzf venus-os-observability-wheels.tar.gz
 
 # 3. Install using Python's built-in wheel support (no pip needed)
-cd release
-python3 -m pip install --no-index --find-links=. -r requirements.txt
 python3 -m pip install --no-index --find-links=. venus_os_observability-0.1.0-py3-none-any.whl
+
+# 4. Copy systemd service and config
+cp /usr/local/lib/python3.*/site-packages/venus_observability/systemd/venus-os-observability.service /etc/systemd/system/
+mkdir -p /etc/venus-os-observability
+cp config.example.yaml /etc/venus-os-observability/config.yaml
+
+# 5. Enable and start
+systemctl daemon-reload
+systemctl enable --now venus-os-observability
 ```
   pyyaml-*.whl \
   structlog-*.whl \
