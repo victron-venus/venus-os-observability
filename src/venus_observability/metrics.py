@@ -4,6 +4,8 @@ Prometheus metrics for Victron Venus OS observability.
 Exports inverter state metrics: SOC, power, grid, battery, loads.
 """
 
+from typing import Any
+
 from opentelemetry.metrics import Meter
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -145,7 +147,13 @@ class VictronMetrics:
             unit="Cel",
         )
 
-    def update_from_dbus(self, service: str, path: str, value, attributes: dict = None) -> None:
+    def update_from_dbus(
+        self,
+        service: str,
+        path: str,
+        value: Any,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
         """Update metrics from D-Bus signal.
 
         Args:
@@ -187,7 +195,7 @@ class VictronMetrics:
         elif path_lower == "/state":
             self._set_gauge(self.inverter_state, value, attrs)
 
-    def _set_gauge(self, gauge, value, attributes: dict) -> None:
+    def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any]) -> None:
         """Safely set gauge value."""
         try:
             num_value = float(value)
@@ -206,7 +214,9 @@ class VictronMetrics:
 
 
 # Prometheus-only metrics helpers (for direct /metrics endpoint)
-def update_prometheus_from_dbus(service: str, path: str, value, serial: str = None) -> None:
+def update_prometheus_from_dbus(
+    service: str, path: str, value: Any, serial: str | None = None
+) -> None:
     """Update Prometheus gauges directly from D-Bus signal."""
     if serial is None:
         serial = service.split(".")[-1] if "." in service else service

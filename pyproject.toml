@@ -82,6 +82,10 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["dbus", "dbus.*", "gi", "gi.*", "opentelemetry.instrumentation.paho_mqtt"]
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["src/venus_observability"]
 omit = ["tests/*", "*/conftest.py"]

@@ -4,7 +4,9 @@ D-Bus signal listener for Victron devices with OpenTelemetry tracing.
 
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
+from typing import Any
 
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
@@ -96,7 +98,7 @@ class DBusSignalListener:
             self.logger.error("Error processing D-Bus signal: %s", e)
 
     @contextmanager
-    def _trace_signal(self, service: str, path: str, data: dict):
+    def _trace_signal(self, service: str, path: str, data: dict[str, Any]) -> Iterator[Span]:
         """Create trace span for D-Bus signal processing."""
         span_name = f"dbus.signal.{service.replace('.', '_')}{path.replace('/', '_')}"
         with self.tracer.start_as_current_span(
@@ -114,7 +116,7 @@ class DBusSignalListener:
                 span.set_status(Status(StatusCode.ERROR, str(e)))
                 raise
 
-    def _handle_value(self, service: str, path: str, value, span: Span) -> None:
+    def _handle_value(self, service: str, path: str, value: Any, span: Span) -> None:
         """Process a single D-Bus value update."""
         start_time = time.perf_counter()
 
@@ -140,6 +142,7 @@ class DBusSignalListener:
         """Run the D-Bus event loop (blocking)."""
         if not self._main_loop:
             self.start()
+        assert self._main_loop is not None
         try:
             self._main_loop.run()
         except KeyboardInterrupt:
