@@ -1,15 +1,15 @@
 # Venus OS Observability - Docker
 
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir --only-binary :all: uv==0.11.31
 
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-RUN uv pip install --system --no-cache -e .
+RUN uv pip install --system --no-cache --only-binary :all: -e .
 
 # Runtime stage
 FROM python:3.11-slim
