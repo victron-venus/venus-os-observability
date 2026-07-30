@@ -2,8 +2,9 @@
 Test configuration and fixtures for venus-os-observability.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
 
 from venus_observability.metrics import VictronMetrics
 
