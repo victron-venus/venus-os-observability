@@ -1,0 +1,372 @@
+{
+  "uid": "venus-os-tempo-traces",
+  "title": "Venus OS Distributed Traces",
+  "tags": ["venus-os", "tracing", "tempo", "correlation-id"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Traces Ingested (last 5m)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "sum(rate(tempo_distributor_spans_received_total[5m]))",
+          "refId": "A",
+          "legendFormat": "Spans/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 100},
+              {"color": "red", "value": 1000}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Active Traces (last 5m)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "sum(rate(tempo_ingester_traces_created_total[5m]))",
+          "refId": "A",
+          "legendFormat": "Traces/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 200}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Trace Ingestion Errors",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "sum(rate(tempo_distributor_spans_failed_total[5m]))",
+          "refId": "A",
+          "legendFormat": "Errors/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Correlation ID Coverage",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "sum(rate(tempo_ingester_spans_with_traceid_total[5m])) / sum(rate(tempo_ingester_spans_total[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "%"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 80},
+              {"color": "green", "value": 95}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Trace Ingestion Rate",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "sum(rate(tempo_distributor_spans_received_total[1m])) by (grpc_type)",
+          "refId": "A",
+          "legendFormat": "{{grpc_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Trace Latency (p50, p95, p99)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(tempo_ingester_trace_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tempo_ingester_trace_duration_seconds_bucket[5m])) by (le))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(tempo_ingester_trace_duration_seconds_bucket[5m])) by (le))",
+          "refId": "C",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Top Services by Trace Volume",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 10},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "topk(10, sum(rate(tempo_ingester_spans_total[5m])) by (service_name))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        }
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Trace Volume by Span Kind",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 10},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "sum(rate(tempo_ingester_spans_total[5m])) by (span_kind)",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"}
+        }
+      }
+    },
+    {
+      "type": "traces",
+      "title": "Recent Traces (Correlation ID Search)",
+      "gridPos": {"x": 0, "y": 22, "w": 24, "h": 12},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "queryType": "traceql",
+          "datasource": "Tempo",
+          "refId": "A",
+          "query": "{ .service.name = \"venus-os-observability\" } | limit 50"
+        }
+      ],
+      "options": {
+        "showTraceLink": true,
+        "showTimestamp": true,
+        "showAttributes": true,
+        "traceLinkUrl": "/explore?left={\"datasource\":\"Tempo\",\"queries\":[{\"queryType\":\"traceql\",\"datasource\":\"Tempo\",\"query\":\"{ .trace.id = \\\"$${__trace.traceID}\\\" }\"]}"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "SpanRef": true,
+              "ParentSpanID": true
+            },
+            "renameByName": {
+              "TraceID": "Trace ID",
+              "SpanID": "Span ID",
+              "ServiceName": "Service",
+              "SpanName": "Operation",
+              "Duration": "Duration",
+              "StartTimeUnixNano": "Start Time"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "D-Bus Signal Processing Latency",
+      "gridPos": {"x": 0, "y": 34, "w": 12, "h": 8},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(tempo_ingester_span_duration_seconds_bucket{span_name=~\"dbus.signal.*\"}[5m])) by (le, dbus_service))",
+          "refId": "A",
+          "legendFormat": "{{dbus_service}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tempo_ingester_span_duration_seconds_bucket{span_name=~\"dbus.signal.*\"}[5m])) by (le, dbus_service))",
+          "refId": "B",
+          "legendFormat": "{{dbus_service}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "MQTT → D-Bus Pipeline Latency",
+      "gridPos": {"x": 12, "y": 34, "w": 12, "h": 8},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(tempo_ingester_span_duration_seconds_bucket{span_name=~\"mqtt.*\"}[5m])) by (le, mqtt_topic))",
+          "refId": "A",
+          "legendFormat": "{{mqtt_topic}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tempo_ingester_span_duration_seconds_bucket{span_name=~\"mqtt.*\"}[5m])) by (le, mqtt_topic))",
+          "refId": "B",
+          "legendFormat": "{{mqtt_topic}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Traces by Correlation ID (Inverter Pipeline)",
+      "gridPos": {"x": 0, "y": 42, "w": 24, "h": 10},
+      "datasource": "Tempo",
+      "targets": [
+        {
+          "queryType": "traceql",
+          "datasource": "Tempo",
+          "refId": "A",
+          "query": "{ .correlation.id != \"\" && .service.name = \"venus-os-observability\" } | select(.correlation.id, .inverter.serial, .span.kind, .duration, .startTime) | limit 100"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": "StartTime",
+        "sortDesc": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "service",
+        "label": "Service",
+        "datasource": "Tempo",
+        "query": "tempo_ingester_spans_total",
+        "refresh": 1,
+        "regex": "service_name=\"([^\"]+)\"",
+        "sort": 1,
+        "default": "venus-os-observability",
+        "allValue": ".*",
+        "includeAll": true,
+        "multi": false
+      },
+      {
+        "type": "query",
+        "name": "correlation_id",
+        "label": "Correlation ID",
+        "datasource": "Tempo",
+        "query": "tempo_ingester_spans_total",
+        "refresh": 1,
+        "regex": "correlation\\.id=\"([^\"]+)\"",
+        "sort": 1,
+        "default": "",
+        "allValue": ".*",
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "type": "query",
+        "name": "inverter_serial",
+        "label": "Inverter Serial",
+        "datasource": "Prometheus",
+        "query": "label_values(victron_battery_soc, serial)",
+        "refresh": 1,
+        "sort": 1,
+        "default": "",
+        "allValue": ".*",
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deployments",
+        "enable": true,
+        "datasource": "Prometheus",
+        "expr": "prometheus_build_info",
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "tags": ["deployment"]
+      }
+    ]
+  }
+}

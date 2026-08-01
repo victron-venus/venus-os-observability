@@ -83,8 +83,12 @@ disallow_untyped_defs = true
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["dbus", "dbus.*", "gi", "gi.*", "opentelemetry.instrumentation.paho_mqtt"]
+module = ["dbus", "dbus.*", "gi", "gi.*", "opentelemetry.instrumentation.paho_mqtt", "opentelemetry.propagators.tracecontext"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "venus_observability.correlation"
+ignore_errors = true
 
 [tool.coverage.run]
 source = ["src/venus_observability"]

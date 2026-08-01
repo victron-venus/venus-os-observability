@@ -1,11 +1,18 @@
 """Pytest configuration and fixtures."""
 
+import sys
 from unittest.mock import MagicMock
 
 import pytest
 from opentelemetry.metrics import Meter
 
-from venus_observability.metrics import VictronMetrics
+# Mock D-Bus and GLib modules that aren't available on macOS
+sys.modules["dbus"] = MagicMock()
+sys.modules["dbus.mainloop"] = MagicMock()
+sys.modules["dbus.mainloop.glib"] = MagicMock()
+sys.modules["gi"] = MagicMock()
+sys.modules["gi.repository"] = MagicMock()
+sys.modules["gi.repository.GLib"] = MagicMock()
 
 
 @pytest.fixture
@@ -19,6 +26,9 @@ def mock_meter() -> MagicMock:
 
 
 @pytest.fixture
-def victron_metrics(mock_meter: MagicMock) -> VictronMetrics:
+def victron_metrics(mock_meter: MagicMock):
     """Create VictronMetrics instance with mock meter."""
+    from venus_observability.metrics import VictronMetrics
+
     return VictronMetrics(mock_meter)
+

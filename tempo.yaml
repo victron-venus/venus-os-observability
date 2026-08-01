@@ -1,0 +1,70 @@
+# Tempo configuration for Victron Venus OS observability
+# Stores traces from MQTT → D-Bus → inverter-control pipeline with correlation IDs
+
+server:
+  http_listen_port: 3200
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  trace_idle_period: 30s
+  max_block_duration: 5m
+  max_block_bytes: 1_000_000
+  wal:
+    path: /var/tempo/wal
+    enabled: true
+
+compactor:
+  compaction:
+    block_retention: 72h
+    compacted_block_retention: 1h
+  compaction_window: 1h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# Query frontend for Grafana Trace to Metrics and TraceQL
+query_frontend:
+  search:
+    duration_slo: 5s
+    throughput_bytes_slo: 1.073741824e+09
+  trace_by_id:
+    duration_slo: 5s
+  query_shard_concurrency: 4
+  max_outstanding_requests_per_tenant: 100
+
+# Limits for Victron-scale deployment (hundreds of devices)
+limits:
+  per_stream_rate_limit: 10MB
+  per_stream_rate_limit_burst: 20MB
+  ingestion_rate_limit: 50MB
+  ingestion_burst_size: 100MB
+  max_global_traces_per_user: 10000
+  max_bytes_per_trace: 2000000
+  max_global_bytes_per_user: 50000000
+
+# Retention - 72 hours for operational debugging
+retention: 72h
+
+# Query frontend cache for repeated TraceQL queries
+query_frontend:
+  cache:
+    cache:
+      enable_fifocache: true
+      fifocache:
+        max_size_items: 100000
+        max_size_bytes: 100000000
+        ttl: 24h

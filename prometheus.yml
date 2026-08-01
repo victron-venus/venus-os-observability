@@ -1,0 +1,70 @@
+# Prometheus configuration for Victron Venus OS observability
+# Scrapes metrics from the observability service and Tempo
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'venus-os'
+    environment: 'production'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Venus OS observability service - D-Bus metrics, correlation ID tracking
+  - job_name: 'venus-observability'
+    metric_prefix: 'victron'
+    static_configs:
+      - targets: ['venus-observability:9090']
+        labels:
+          service: 'venus-os-observability'
+          component: 'dbus-listener'
+
+  # Tempo metrics for trace ingestion monitoring
+  - job_name: 'tempo'
+    static_configs:
+      - targets: ['tempo:3200']
+        labels:
+          service: 'tempo'
+          component: 'tracing'
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+          component: 'visualization'
+
+  # Node exporter for host metrics (if deployed)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+        labels:
+          service: 'node-exporter'
+          component: 'host-metrics'
+
+# Remote write to external systems (optional)
+# remote_write:
+#   - url: https://prometheus.example.com/api/v1/write
+#     basic_auth:
+#       username: 'user'
+#       password: '${PROMETHEUS_PASSWORD}'
+
+# Retention for operational debugging
+retention: 30d
+retention_size: 10GB
+
+# WAL settings
+wal:
+  dir: /prometheus/wal

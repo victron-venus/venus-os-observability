@@ -1,0 +1,75 @@
+# Grafana datasource provisioning for Venus OS observability
+# Configures Prometheus, Tempo, and Loki datasources
+
+apiVersion: 1
+
+datasources:
+  # Prometheus - metrics from venus-observability service
+  - name: 'Prometheus'
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: '15s'
+      queryTimeout: '60s'
+      httpMethod: 'POST'
+      exemplarTraceIdDestinations:
+        - name: 'traceID'
+          datasourceUid: 'Tempo'
+      # Enable trace to metrics correlation
+      exemplaryMetrics: true
+
+  # Tempo - distributed traces with correlation IDs
+  - name: 'Tempo'
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    editable: false
+    jsonData:
+      # Trace to metrics correlation
+      tracesToMetrics:
+        datasourceUid: 'Prometheus'
+        # Span attributes that map to Prometheus labels
+        tags:
+          - service.name
+          - dbus.service
+          - dbus.path
+          - mqtt.topic
+          - correlation.id
+          - inverter.serial
+          - span.kind
+      # TraceQL queries
+      traceQL:
+        enabled: true
+      # Node graph for service topology
+      nodeGraph:
+        enabled: true
+      # Service map
+      serviceMap:
+        datasourceUid: 'Prometheus'
+      # Search
+      search:
+        hide: false
+      # Custom HTTP headers
+      httpMethod: 'GET'
+    # Exemplars from Prometheus
+    exemplars:
+      traceIdFieldName: 'traceID'
+
+  # Optional: Loki for logs (if deployed)
+  - name: 'Loki'
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - name: traceID
+          matcherRegex: 'traceID=(\\w+)'
+          url: '${__value.raw}'
+          datasourceUid: 'Tempo'

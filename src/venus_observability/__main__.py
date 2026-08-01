@@ -9,21 +9,33 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from types import FrameType
+from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
-from opentelemetry.instrumentation.paho_mqtt import PahoMqttInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import start_http_server
 
+from .correlation import (
+    CorrelationIDPropagator,
+    extract_correlation_id_from_headers,
+    extract_correlation_id_from_mqtt_properties,
+    get_correlation_id,
+    inject_correlation_id_into_headers,
+    inject_correlation_id_into_mqtt_properties,
+    set_correlation_id,
+)
 from .dbus_listener import DBusSignalListener
 from .metrics import VictronMetrics
 
 logger = logging.getLogger(__name__)
+
+# Global correlation propagator
+_correlation_propagator: CorrelationIDPropagator | None = None
 
 
 def setup_telemetry(
@@ -41,6 +53,8 @@ def setup_telemetry(
     Returns:
         Tuple of (TracerProvider, MeterProvider)
     """
+    global _correlation_propagator
+
     # Resource with service info
     resource = Resource.create({SERVICE_NAME: service_name})
 
@@ -61,8 +75,21 @@ def setup_telemetry(
     start_http_server(prometheus_port)
     logger.info("Prometheus metrics server started on port %d", prometheus_port)
 
-    # Instrument MQTT client
-    PahoMqttInstrumentor().instrument()
+    # Register custom correlation propagator
+    _correlation_propagator = CorrelationIDPropagator()
+    trace.get_tracer_provider().add_span_processor(_correlation_propagator)  # type: ignore[attr-defined]
+
+    # Instrument MQTT client with correlation ID propagation (optional)
+    try:
+        from opentelemetry.instrumentation.paho_mqtt import PahoMqttInstrumentor
+
+        PahoMqttInstrumentor().instrument()
+        logger.info("MQTT instrumentation enabled")
+    except ImportError:
+        logger.warning(
+            "opentelemetry-instrumentation-paho-mqtt not available, "
+            "MQTT instrumentation disabled"
+        )
 
     return tracer_provider, meter_provider
 
@@ -132,6 +159,89 @@ class ObservabilityService:
             self.stop()
 
 
+# MQTT correlation ID middleware functions
+def mqtt_publish_with_correlation(
+    client: Any, topic: str, payload: Any, qos: int = 0, retain: bool = False, **kwargs: Any
+) -> Any:
+    """
+    Publish MQTT message with correlation ID propagation.
+    Usage: mqtt_publish_with_correlation(client, "topic", "payload")
+    """
+    from opentelemetry import trace
+
+    # Get or create correlation ID
+    correlation_id = get_correlation_id()
+
+    # Get current trace context for W3C propagation
+    span = trace.get_current_span()
+    trace_context = None
+    if span and span.is_recording():
+        span_context = span.get_span_context()
+        if span_context and span_context.is_valid:
+            trace_context = {
+                "trace_id": format(span_context.trace_id, "032x"),
+                "span_id": format(span_context.span_id, "016x"),
+                "trace_flags": format(span_context.trace_flags, "02x"),
+            }
+
+    # Inject correlation ID into MQTT properties if using MQTT v5
+    properties = kwargs.get("properties")
+    if properties:
+        inject_correlation_id_into_mqtt_properties(properties, correlation_id)
+
+    # Also inject into headers if provided
+    headers = kwargs.get("headers")
+    if headers is not None:
+        inject_correlation_id_into_headers(headers, correlation_id, trace_context)
+
+    return client.publish(topic, payload, qos, retain, **kwargs)
+
+
+def mqtt_callback_with_correlation_extraction(callback: Any) -> Any:
+    """
+    Wrapper for MQTT callback to extract correlation ID from incoming messages.
+    Usage: client.on_message = mqtt_callback_with_correlation_extraction(my_callback)
+    """
+
+    def wrapped_callback(client: Any, userdata: Any, message: Any) -> None:
+        # Extract correlation ID from message properties (MQTT v5)
+        correlation_id = None
+        if hasattr(message, "properties") and message.properties:
+            correlation_id = extract_correlation_id_from_mqtt_properties(message.properties)
+
+        # Fallback: check headers if available
+        if not correlation_id and hasattr(message, "headers") and message.headers:
+            correlation_id = extract_correlation_id_from_headers(message.headers)
+
+        # Set correlation ID in context for this callback
+        token = None
+        if correlation_id:
+            token = set_correlation_id(correlation_id)
+
+        try:
+            callback(client, userdata, message)
+        finally:
+            if token:
+                # Reset context after callback
+                from .correlation import reset_correlation_id
+
+                reset_correlation_id(token)
+
+    return wrapped_callback
+
+
+def setup_mqtt_correlation(client: Any) -> None:
+    """Configure MQTT client for correlation ID propagation."""
+    # Wrap on_message to extract correlation ID
+    original_on_message = client.on_message
+    if original_on_message:
+        client.on_message = mqtt_callback_with_correlation_extraction(original_on_message)
+
+    # Store reference for publish operations
+    client._correlation_publish = mqtt_publish_with_correlation
+
+
+# Backward compatibility - keep the main function
 def main() -> None:
     """CLI entry point."""
     import signal
@@ -168,3 +278,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -1,0 +1,25 @@
+# Grafana dashboard provisioning for Venus OS observability
+# Automatically loads dashboards from the dashboards directory
+
+apiVersion: 1
+
+providers:
+  - name: 'Venus OS Dashboards'
+    orgId: 1
+    folder: 'Venus OS'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+
+  - name: 'Tempo Tracing Dashboards'
+    orgId: 1
+    folder: 'Tracing'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/tracing

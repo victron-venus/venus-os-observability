@@ -1,0 +1,319 @@
+{
+  "uid": "venus-os-main",
+  "title": "Venus OS System Overview",
+  "tags": ["venus-os", "inverter", "battery", "pv", "grid"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Battery SOC",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_battery_soc",
+          "refId": "A",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 20},
+              {"color": "green", "value": 50}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Battery Power",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_battery_power",
+          "refId": "A",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "blue", "value": null},
+              {"color": "green", "value": 0}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "PV Production",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_pv_power",
+          "refId": "A",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "color": {"mode": "fixed", "fixedColor": "yellow"}
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Grid Power",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_grid_power",
+          "refId": "A",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 0}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Battery SOC History",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_battery_soc",
+          "refId": "A",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Power Flow (Battery, PV, Grid, Loads)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_battery_power",
+          "refId": "A",
+          "legendFormat": "Battery ({{serial}})"
+        },
+        {
+          "expr": "victron_pv_power",
+          "refId": "B",
+          "legendFormat": "PV ({{serial}})"
+        },
+        {
+          "expr": "victron_grid_power",
+          "refId": "C",
+          "legendFormat": "Grid ({{serial}})"
+        },
+        {
+          "expr": "victron_ac_loads",
+          "refId": "D",
+          "legendFormat": "Loads ({{serial}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt"
+        }
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "Inverter State",
+      "gridPos": {"x": 0, "y": 12, "w": 6, "h": 6},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_inverter_state",
+          "refId": "A",
+          "legendFormat": "{{serial}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": 0},   // Off
+              {"color": "yellow", "value": 1}, // On
+              {"color": "blue", "value": 2},   // Charging
+              {"color": "green", "value": 3}   // Inverting
+            ]
+          },
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "Off", "color": "red"}}},
+            {"type": "value", "options": {"1": {"text": "On", "color": "yellow"}}},
+            {"type": "value", "options": {"2": {"text": "Charging", "color": "blue"}}},
+            {"type": "value", "options": {"3": {"text": "Inverting", "color": "green"}}}
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "D-Bus Signals Received (5m rate)",
+      "gridPos": {"x": 6, "y": 12, "w": 6, "h": 6},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(victron_dbus_signals_received_total[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Trace Propagation Errors",
+      "gridPos": {"x": 12, "y": 12, "w": 6, "h": 6},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(victron_trace_propagation_errors_total[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cell Voltages",
+      "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_battery_cell_voltage",
+          "refId": "A",
+          "legendFormat": "{{serial}} Cell {{cell}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "min": 2.5,
+          "max": 4.2
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cell Temperatures",
+      "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "victron_battery_cell_temperature",
+          "refId": "A",
+          "legendFormat": "{{serial}} Cell {{cell}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "min": -20,
+          "max": 60
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "D-Bus Services & Signal Rates",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 10},
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(victron_dbus_signals_received_total[5m])) by (service, path)",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": "Value",
+        "sortDesc": true
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "serial",
+        "label": "Device Serial",
+        "datasource": "Prometheus",
+        "query": "label_values(victron_battery_soc, serial)",
+        "refresh": 1,
+        "sort": 1,
+        "default": "",
+        "allValue": ".*",
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  }
+}

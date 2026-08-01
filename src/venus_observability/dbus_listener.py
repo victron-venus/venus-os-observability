@@ -14,6 +14,11 @@ from gi.repository import GLib
 from opentelemetry import trace
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 
+from .correlation import (
+    CorrelationContext,
+    extract_correlation_id_from_headers,
+    get_correlation_id,
+)
 from .metrics import VictronMetrics, update_prometheus_from_dbus
 
 # Initialize D-Bus main loop
@@ -69,6 +74,17 @@ class DBusSignalListener:
         for path in paths:
             self.subscribe(service, path)
 
+    def _extract_headers_from_message(self, message: dbus.Message) -> dict[str, str]:
+        """Extract correlation headers from D-Bus message."""
+        headers: dict[str, str] = {}
+        # Try to get correlation ID from message metadata if available
+        # D-Bus doesn't have standard headers, but we can check for custom metadata
+        with suppress(Exception):
+            # Check for any custom properties or annotations
+            # (This is a placeholder - D-Bus typically doesn't carry correlation IDs natively)
+            pass
+        return headers
+
     def _message_filter(self, bus: dbus.Bus, message: dbus.Message) -> None:
         """Handle incoming D-Bus signal messages."""
         if message.get_member() != "ItemsChanged":
@@ -86,7 +102,11 @@ class DBusSignalListener:
             changed = args[0] if isinstance(args[0], dict) else {}
             removed = args[1] if isinstance(args[1], list) else []
 
-            with self._trace_signal(sender, path, changed) as span:
+            # Extract correlation ID from message if available
+            headers = self._extract_headers_from_message(message)
+            correlation_id = extract_correlation_id_from_headers(headers)
+
+            with self._trace_signal(sender, path, changed, correlation_id) as span:
                 for key, value in changed.items():
                     full_path = f"{path}/{key}" if key else path
                     self._handle_value(sender, full_path, value, span)
@@ -98,9 +118,15 @@ class DBusSignalListener:
             self.logger.error("Error processing D-Bus signal: %s", e)
 
     @contextmanager
-    def _trace_signal(self, service: str, path: str, data: dict[str, Any]) -> Iterator[Span]:
-        """Create trace span for D-Bus signal processing."""
+    def _trace_signal(
+        self, service: str, path: str, data: dict[str, Any], correlation_id: str | None = None
+    ) -> Iterator[Span]:
+        """Create trace span for D-Bus signal processing with correlation ID."""
         span_name = f"dbus.signal.{service.replace('.', '_')}{path.replace('/', '_')}"
+
+        # Use correlation ID from context or provided
+        corr_id = correlation_id or get_correlation_id()
+
         with self.tracer.start_as_current_span(
             span_name,
             kind=SpanKind.CONSUMER,
@@ -108,13 +134,23 @@ class DBusSignalListener:
                 "dbus.service": service,
                 "dbus.path": path,
                 "dbus.changed_keys": list(data.keys()),
+                "correlation.id": corr_id or "",
             },
         ) as span:
-            try:
-                yield span
-            except Exception as e:
-                span.set_status(Status(StatusCode.ERROR, str(e)))
-                raise
+            # Set correlation ID in context for downstream operations
+            if corr_id:
+                with CorrelationContext(corr_id):
+                    try:
+                        yield span
+                    except Exception as e:
+                        span.set_status(Status(StatusCode.ERROR, str(e)))
+                        raise
+            else:
+                try:
+                    yield span
+                except Exception as e:
+                    span.set_status(Status(StatusCode.ERROR, str(e)))
+                    raise
 
     def _handle_value(self, service: str, path: str, value: Any, span: Span) -> None:
         """Process a single D-Bus value update."""
