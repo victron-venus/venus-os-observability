@@ -48,33 +48,52 @@ def reset_correlation_id(token: contextvars.Token[str | None]) -> None:
     _correlation_id_var.reset(token)
 
 
+def _get_header_case_insensitive(headers: dict[str, str], name: str) -> str | None:
+    """Get header value case-insensitively."""
+    return headers.get(name) or headers.get(name.lower())
+
+
+def _extract_from_traceparent(traceparent: str) -> str | None:
+    """Extract trace ID from W3C traceparent header."""
+    parts = traceparent.split("-")
+    if len(parts) >= 2:
+        return parts[1]
+    return None
+
+
+def _extract_from_baggage(baggage: str) -> str | None:
+    """Extract correlation ID from baggage header."""
+    for item in baggage.split(","):
+        if "=" in item:
+            key, value = item.split("=", 1)
+            if key.strip().lower() == "correlation-id":
+                return value.strip()
+    return None
+
+
 def extract_correlation_id_from_headers(headers: dict[str, str]) -> str | None:
     """
     Extract correlation ID from message headers.
     Checks in order: W3C traceparent, custom x-correlation-id, baggage.
     """
     # Check W3C traceparent header
-    traceparent = headers.get(TRACEPARENT_HEADER) or headers.get(TRACEPARENT_HEADER.lower())
+    traceparent = _get_header_case_insensitive(headers, TRACEPARENT_HEADER)
     if traceparent:
-        # Format: version-trace-id-parent-id-flags
-        parts = traceparent.split("-")
-        if len(parts) >= 2:
-            return parts[1]  # trace-id
+        result = _extract_from_traceparent(traceparent)
+        if result:
+            return result
 
     # Check custom correlation ID header
-    corr_id = headers.get(CORRELATION_ID_HEADER) or headers.get(CORRELATION_ID_HEADER.lower())
+    corr_id = _get_header_case_insensitive(headers, CORRELATION_ID_HEADER)
     if corr_id:
         return corr_id
 
     # Check baggage header
-    baggage = headers.get(BAGGAGE_HEADER) or headers.get(BAGGAGE_HEADER.lower())
+    baggage = _get_header_case_insensitive(headers, BAGGAGE_HEADER)
     if baggage:
-        # Parse baggage for correlation-id
-        for item in baggage.split(","):
-            if "=" in item:
-                key, value = item.split("=", 1)
-                if key.strip().lower() == "correlation-id":
-                    return value.strip()
+        result = _extract_from_baggage(baggage)
+        if result:
+            return result
 
     return None
 

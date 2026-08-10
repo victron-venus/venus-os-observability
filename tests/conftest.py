@@ -31,4 +31,3 @@ def victron_metrics(mock_meter: MagicMock):
     from venus_observability.metrics import VictronMetrics
 
     return VictronMetrics(mock_meter)
-

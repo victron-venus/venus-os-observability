@@ -87,8 +87,7 @@ def setup_telemetry(
         logger.info("MQTT instrumentation enabled")
     except ImportError:
         logger.warning(
-            "opentelemetry-instrumentation-paho-mqtt not available, "
-            "MQTT instrumentation disabled"
+            "opentelemetry-instrumentation-paho-mqtt not available, MQTT instrumentation disabled"
         )
 
     return tracer_provider, meter_provider
@@ -278,4 +277,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

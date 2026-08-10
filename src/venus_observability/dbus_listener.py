@@ -24,6 +24,9 @@ from .metrics import VictronMetrics, update_prometheus_from_dbus
 # Initialize D-Bus main loop
 DBusGMainLoop(set_as_default=True)
 
+# Common D-Bus paths used across multiple service types
+DC_VOLTAGE_PATH = "/Dc/0/Voltage"
+
 
 class DBusSignalListener:
     """Async D-Bus signal listener for Victron services."""
@@ -204,7 +207,7 @@ class VictronServiceDiscovery:
     KNOWN_SERVICES = {
         "battery": [
             "/Soc",
-            "/Dc/0/Voltage",
+            DC_VOLTAGE_PATH,
             "/Dc/0/Current",
             "/Dc/0/Power",
             "/Dc/0/Temperature",
@@ -212,7 +215,7 @@ class VictronServiceDiscovery:
         ],
         "solarcharger": [
             "/Yield/Power",
-            "/Dc/0/Voltage",
+            DC_VOLTAGE_PATH,
             "/Dc/0/Current",
             "/Dc/0/Power",
         ],
@@ -220,7 +223,7 @@ class VictronServiceDiscovery:
             "/State",
             "/Ac/Out/L1/P",
             "/Ac/Grid/L1/P",
-            "/Dc/0/Voltage",
+            DC_VOLTAGE_PATH,
         ],
         "grid": [
             "/Ac/Power",

@@ -24,4 +24,3 @@ __all__ = [
     "mqtt_callback_with_correlation_extraction",
     "mqtt_publish_with_correlation",
 ]
-
