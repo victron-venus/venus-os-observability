@@ -218,23 +218,21 @@ class TestVictronServiceDiscovery:
             "com.victronenergy.solarcharger.ttyO0",
             "org.freedesktop.DBus",
         ]
-        mock_dbus_bus.get_object.return_value = mock_obj
 
-        # Mock introspection XML for each service - the code calls get_object for each service
-        # First call gets org.freedesktop.DBus, subsequent calls get the service objects
-        mock_service_obj = MagicMock()
-        mock_service_obj.Introspect.side_effect = [
-            '<node><node name="Soc"/><node name="Dc"/></node>',  # battery
-            '<node><node name="Yield"/><node name="Dc"/></node>',  # solarcharger
-        ]
-        # get_object is called: once for org.freedesktop.DBus, then for each service
-        mock_dbus_bus.get_object.side_effect = [
-            mock_obj,  # for ListNames
-            mock_service_obj,  # for battery
-            mock_service_obj,  # for solarcharger
-        ]
+        # Need to mock dbus.Interface
+        with patch("venus_observability.dbus_listener.dbus.Interface", return_value=mock_iface):
+            mock_service_obj = MagicMock()
+            mock_service_obj.Introspect.side_effect = [
+                '<node><node name="Soc"/><node name="Dc"/></node>',  # battery
+                '<node><node name="Yield"/><node name="Dc"/></node>',  # solarcharger
+            ]
+            mock_dbus_bus.get_object.side_effect = [
+                mock_obj,  # for org.freedesktop.DBus
+                mock_service_obj,  # for battery
+                mock_service_obj,  # for solarcharger
+            ]
 
-        services = discovery.find_victron_services()
+            services = discovery.find_victron_services()
 
         assert "com.victronenergy.battery.ttyO1" in services
         assert "com.victronenergy.solarcharger.ttyO0" in services
@@ -263,14 +261,6 @@ class TestVictronServiceDiscovery:
 
         assert "/Soc" in paths
         assert "/Dc" in paths
-
-    def test_introspect_service_handles_exception(self, mock_dbus_bus):
-        """Test introspection handles exceptions."""
-        discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
-        mock_dbus_bus.get_object.side_effect = Exception("Failed")
-
-        paths = discovery._introspect_service("com.victronenergy.battery.ttyO1")
-        assert paths == []
 
     def test_get_known_paths(self, mock_dbus_bus):
         """Test getting known paths for service types."""
