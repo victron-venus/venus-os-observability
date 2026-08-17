@@ -77,7 +77,7 @@ def setup_telemetry(
 
     # Register custom correlation propagator
     _correlation_propagator = CorrelationIDPropagator()
-    trace.get_tracer_provider().add_span_processor(_correlation_propagator)  # type: ignore[attr-defined]
+    tracer_provider.add_span_processor(_correlation_propagator)  # type: ignore[attr-defined]
 
     # Instrument MQTT client with correlation ID propagation (optional)
     try:

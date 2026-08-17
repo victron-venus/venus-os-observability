@@ -23,3 +23,21 @@ repos:
   rev: v3.2.0
   hooks:
   - id: pylint
+    additional_dependencies:
+      - pytest>=8.0
+      - opentelemetry-api>=1.28
+      - opentelemetry-sdk>=1.28
+      - opentelemetry-exporter-prometheus>=0.49b2
+      - opentelemetry-exporter-otlp>=1.28
+      - opentelemetry-exporter-otlp-proto-grpc>=1.28
+      - opentelemetry-instrumentation>=0.49b0
+      - prometheus-client>=0.19
+      - paho-mqtt>=2.0
+      - dbus-next>=0.2
+      - pyyaml>=6.0
+      - structlog>=24.0
+      - click>=8.1
+    args: [
+      "--ignore-imports=yes",
+      "--disable=import-error,global-statement,import-outside-toplevel,redefined-outer-name,reimported,too-many-instance-attributes,protected-access,unused-argument,broad-exception-caught,missing-module-docstring,arguments-renamed,no-name-in-module,too-few-public-methods",
+    ]
