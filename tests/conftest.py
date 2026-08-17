@@ -7,12 +7,19 @@ import pytest
 from opentelemetry.metrics import Meter
 
 # Mock D-Bus and GLib modules that aren't available on macOS
+# Must be done BEFORE any imports that might trigger gi
 sys.modules["dbus"] = MagicMock()
 sys.modules["dbus.mainloop"] = MagicMock()
 sys.modules["dbus.mainloop.glib"] = MagicMock()
 sys.modules["gi"] = MagicMock()
 sys.modules["gi.repository"] = MagicMock()
 sys.modules["gi.repository.GLib"] = MagicMock()
+
+# Add src to path so we can import venus_observability
+sys.path.insert(0, "src")
+
+# pylint: disable=wrong-import-position
+from venus_observability.metrics import VictronMetrics  # noqa: E402
 
 
 @pytest.fixture
@@ -26,8 +33,6 @@ def mock_meter() -> MagicMock:
 
 
 @pytest.fixture
-def victron_metrics(mock_meter: MagicMock):
+def victron_metrics(meter: MagicMock) -> VictronMetrics:
     """Create VictronMetrics instance with mock meter."""
-    from venus_observability.metrics import VictronMetrics
-
-    return VictronMetrics(mock_meter)
+    return VictronMetrics(meter)

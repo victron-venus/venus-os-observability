@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# setup.py for Venus OS .ipk build
+"""Setup script for venus-os-observability package."""
 
 from setuptools import find_packages, setup
 

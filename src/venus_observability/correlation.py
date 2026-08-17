@@ -50,7 +50,11 @@ def reset_correlation_id(token: contextvars.Token[str | None]) -> None:
 
 def _get_header_case_insensitive(headers: dict[str, str], name: str) -> str | None:
     """Get header value case-insensitively."""
-    return headers.get(name) or headers.get(name.lower())
+    name_lower = name.lower()
+    for k, v in headers.items():
+        if k.lower() == name_lower:
+            return v
+    return None
 
 
 def _extract_from_traceparent(traceparent: str) -> str | None:
@@ -178,8 +182,8 @@ class CorrelationIDPropagator(textmap.TextMapPropagator):
         # Delegate to standard W3C propagator for trace context
         from opentelemetry.propagators.tracecontext import TraceContextTextMapPropagator
 
-        w3c_propagator = TraceContextTextMapPropagator()
-        return w3c_propagator.extract(carrier, getter, context)  # type: ignore[no-any-return,operator]
+        w3c = TraceContextTextMapPropagator()
+        return w3c.extract(carrier, getter, context)  # type: ignore[no-any-return,operator]
 
     # type: ignore[override] - signature mismatch with parent class
     def inject(
@@ -202,8 +206,8 @@ class CorrelationIDPropagator(textmap.TextMapPropagator):
         # Also inject standard W3C trace context
         from opentelemetry.propagators.tracecontext import TraceContextTextMapPropagator
 
-        w3c_propagator = TraceContextTextMapPropagator()
-        w3c_propagator.inject(carrier, setter, context)  # type: ignore[operator]
+        w3c = TraceContextTextMapPropagator()
+        w3c.inject(carrier, setter, context)  # type: ignore[operator]
 
     @property
     def fields(self) -> set[str]:
