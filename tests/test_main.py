@@ -6,6 +6,7 @@ Tests for main module (ObservabilityService, MQTT helpers, CLI).
 # pylint: disable=redefined-outer-name,unused-variable,unused-argument
 
 import sys
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,7 +27,7 @@ from venus_observability.correlation import (
 
 
 @pytest.fixture(autouse=True)
-def reset_context():
+def reset_context() -> Generator[None, None, None]:
     """Reset correlation ID context before each test."""
     set_correlation_id(None)
     yield
@@ -36,24 +37,36 @@ def reset_context():
 class TestSetupTelemetry:
     """Tests for setup_telemetry function."""
 
-    @patch("venus_observability.__main__.start_http_server")
-    @patch("venus_observability.__main__.OTLPSpanExporter")
-    @patch("venus_observability.__main__.BatchSpanProcessor")
-    @patch("venus_observability.__main__.TracerProvider")
-    @patch("venus_observability.__main__.trace.set_tracer_provider")
-    @patch("venus_observability.__main__.Resource.create")
-    def test_setup_telemetry_basic(self, *mocks):
+    @pytest.fixture
+    def telemetry_mocks(self):
+        """Common mocks for telemetry tests."""
+        with (
+            patch("venus_observability.__main__.Resource.create") as mock_resource_create,
+            patch(
+                "venus_observability.__main__.trace.set_tracer_provider"
+            ) as mock_set_tracer_provider,
+            patch("venus_observability.__main__.TracerProvider") as mock_tracer_provider_class,
+            patch("venus_observability.__main__.BatchSpanProcessor") as mock_batch_span_processor,
+            patch("venus_observability.__main__.OTLPSpanExporter") as mock_otlp_exporter_class,
+            patch("venus_observability.__main__.start_http_server") as mock_start_http_server,
+        ):
+            mock_resource = MagicMock()
+            mock_resource_create.return_value = mock_resource
+            mock_tracer_provider = MagicMock()
+            mock_tracer_provider_class.return_value = mock_tracer_provider
+            yield {
+                "resource_create": mock_resource_create,
+                "set_tracer_provider": mock_set_tracer_provider,
+                "tracer_provider_class": mock_tracer_provider_class,
+                "batch_span_processor": mock_batch_span_processor,
+                "otlp_exporter_class": mock_otlp_exporter_class,
+                "start_http_server": mock_start_http_server,
+                "resource": mock_resource,
+                "tracer_provider": mock_tracer_provider,
+            }
+
+    def test_setup_telemetry_basic(self, telemetry_mocks) -> None:
         """Test basic telemetry setup without OTLP endpoint."""
-        mock_resource_create = mocks[0]
-        mock_set_tracer_provider = mocks[1]
-        mock_tracer_provider_class = mocks[2]
-        mock_start_http_server = mocks[5]
-        mock_resource = MagicMock()
-        mock_resource_create.return_value = mock_resource
-
-        mock_tracer_provider = MagicMock()
-        mock_tracer_provider_class.return_value = mock_tracer_provider
-
         mock_meter_provider = MagicMock()
         with (
             patch("venus_observability.__main__.MeterProvider", return_value=mock_meter_provider),
@@ -65,35 +78,21 @@ class TestSetupTelemetry:
                 prometheus_port=9090,
             )
 
-        assert tracer_provider is mock_tracer_provider
+        assert tracer_provider is telemetry_mocks["tracer_provider"]
         assert meter_provider is mock_meter_provider
-        mock_start_http_server.assert_called_once_with(9090)
-        mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider)
-        mock_tracer_provider.add_span_processor.assert_not_called()
+        telemetry_mocks["start_http_server"].assert_called_once_with(9090)
+        telemetry_mocks["set_tracer_provider"].assert_called_once_with(
+            telemetry_mocks["tracer_provider"]
+        )
+        telemetry_mocks["tracer_provider"].add_span_processor.assert_not_called()
 
-    @patch("venus_observability.__main__.start_http_server")
-    @patch("venus_observability.__main__.OTLPSpanExporter")
-    @patch("venus_observability.__main__.BatchSpanProcessor")
-    @patch("venus_observability.__main__.TracerProvider")
-    @patch("venus_observability.__main__.trace.set_tracer_provider")
-    @patch("venus_observability.__main__.Resource.create")
-    def test_setup_telemetry_with_otlp(self, *mocks):
+    def test_setup_telemetry_with_otlp(self, telemetry_mocks) -> None:
         """Test telemetry setup with OTLP endpoint."""
-        mock_resource_create = mocks[0]
-        mock_tracer_provider_class = mocks[2]
-        mock_batch_span_processor = mocks[3]
-        mock_otlp_exporter_class = mocks[4]
-        mock_resource = MagicMock()
-        mock_resource_create.return_value = mock_resource
-
-        mock_tracer_provider = MagicMock()
-        mock_tracer_provider_class.return_value = mock_tracer_provider
-
         mock_meter_provider = MagicMock()
         mock_otlp_exporter = MagicMock()
         mock_batch_processor = MagicMock()
-        mock_otlp_exporter_class.return_value = mock_otlp_exporter
-        mock_batch_span_processor.return_value = mock_batch_processor
+        telemetry_mocks["otlp_exporter_class"].return_value = mock_otlp_exporter
+        telemetry_mocks["batch_span_processor"].return_value = mock_batch_processor
 
         with (
             patch("venus_observability.__main__.MeterProvider", return_value=mock_meter_provider),
@@ -105,11 +104,13 @@ class TestSetupTelemetry:
                 prometheus_port=9090,
             )
 
-        mock_otlp_exporter_class.assert_called_once_with(
+        telemetry_mocks["otlp_exporter_class"].assert_called_once_with(
             endpoint="http://tempo:4317", insecure=True
         )
-        mock_batch_span_processor.assert_called_once_with(mock_otlp_exporter)
-        mock_tracer_provider.add_span_processor.assert_called_once_with(mock_batch_processor)
+        telemetry_mocks["batch_span_processor"].assert_called_once_with(mock_otlp_exporter)
+        telemetry_mocks["tracer_provider"].add_span_processor.assert_called_once_with(
+            mock_batch_processor
+        )
 
 
 class TestObservabilityService:
@@ -120,10 +121,10 @@ class TestObservabilityService:
     @patch("venus_observability.__main__.DBusSignalListener")
     def test_start(
         self,
-        mock_dbus_listener_class,
-        mock_victron_metrics_class,
-        mock_setup_telemetry,
-    ):
+        mock_dbus_listener_class: MagicMock,
+        mock_victron_metrics_class: MagicMock,
+        mock_setup_telemetry: MagicMock,
+    ) -> None:
         """Test service start."""
         mock_tracer_provider = MagicMock()
         mock_meter_provider = MagicMock()
@@ -164,7 +165,7 @@ class TestObservabilityService:
         )
         mock_dbus_listener.start.assert_called_once()
 
-    def test_stop(self):
+    def test_stop(self) -> None:
         """Test service stop."""
         service = ObservabilityService()
         service._tracer_provider = MagicMock()
@@ -177,11 +178,11 @@ class TestObservabilityService:
         service._tracer_provider.shutdown.assert_called_once()
         service._meter_provider.shutdown.assert_called_once()
 
-    def test_lifespan_context_manager(self):
+    def test_lifespan_context_manager(self) -> None:
         """Test lifespan context manager."""
         service = ObservabilityService()
-        service.start = MagicMock()
-        service.stop = MagicMock()
+        service.start = MagicMock()  # type: ignore[method-assign]
+        service.stop = MagicMock()  # type: ignore[method-assign]
 
         with service.lifespan() as s:
             assert s is service
@@ -193,7 +194,7 @@ class TestObservabilityService:
 class TestMqttPublishWithCorrelation:
     """Tests for MQTT publish with correlation."""
 
-    def test_mqtt_publish_with_correlation(self):
+    def test_mqtt_publish_with_correlation(self) -> None:
         """Test publishing with correlation ID."""
         mock_client = MagicMock()
         mock_client.publish.return_value = "result"
@@ -206,7 +207,7 @@ class TestMqttPublishWithCorrelation:
         assert result == "result"
         mock_client.publish.assert_called_once_with("test/topic", "payload", 1, True)
 
-    def test_mqtt_publish_with_correlation_injects_properties(self):
+    def test_mqtt_publish_with_correlation_injects_properties(self) -> None:
         """Test publishing injects correlation into MQTT v5 properties."""
         mock_client = MagicMock()
         mock_client.publish.return_value = "result"
@@ -221,11 +222,11 @@ class TestMqttPublishWithCorrelation:
         # Check that properties were updated with correlation
         assert mock_properties.UserProperty is not None
 
-    def test_mqtt_publish_with_trace_context(self):
+    def test_mqtt_publish_with_trace_context(self) -> None:
         """Test publishing with trace context injects headers."""
         mock_client = MagicMock()
         mock_client.publish.return_value = "result"
-        mock_headers = {}
+        mock_headers: dict[str, str] = {}
 
         with patch("venus_observability.__main__.trace.get_current_span") as mock_get_span:
             mock_span = MagicMock()
@@ -251,7 +252,7 @@ class TestMqttPublishWithCorrelation:
 class TestMqttCallbackWithCorrelationExtraction:
     """Tests for MQTT callback correlation extraction."""
 
-    def test_callback_extracts_from_properties(self):
+    def test_callback_extracts_from_properties(self) -> None:
         """Test callback extracts correlation from message properties."""
         inner_callback = MagicMock()
         wrapped = mqtt_callback_with_correlation_extraction(inner_callback)
@@ -270,7 +271,7 @@ class TestMqttCallbackWithCorrelationExtraction:
 
         inner_callback.assert_called_once_with(mock_client, mock_userdata, mock_message)
 
-    def test_callback_fallback_to_headers(self):
+    def test_callback_fallback_to_headers(self) -> None:
         """Test callback falls back to headers if no properties."""
         inner_callback = MagicMock()
         wrapped = mqtt_callback_with_correlation_extraction(inner_callback)
@@ -289,7 +290,7 @@ class TestMqttCallbackWithCorrelationExtraction:
 
         inner_callback.assert_called_once()
 
-    def test_callback_no_correlation_id(self):
+    def test_callback_no_correlation_id(self) -> None:
         """Test callback handles missing correlation ID."""
         inner_callback = MagicMock()
         wrapped = mqtt_callback_with_correlation_extraction(inner_callback)
@@ -304,7 +305,7 @@ class TestMqttCallbackWithCorrelationExtraction:
 
         inner_callback.assert_called_once()
 
-    def test_callback_resets_context(self):
+    def test_callback_resets_context(self) -> None:
         """Test callback resets correlation context after execution."""
         inner_callback = MagicMock()
         wrapped = mqtt_callback_with_correlation_extraction(inner_callback)
@@ -325,7 +326,7 @@ class TestMqttCallbackWithCorrelationExtraction:
             # Context should be None after
             assert get_correlation_id() is None
 
-    def test_callback_resets_on_exception(self):
+    def test_callback_resets_on_exception(self) -> None:
         """Test callback resets correlation context even on exception."""
         inner_callback = MagicMock(side_effect=RuntimeError("test error"))
         wrapped = mqtt_callback_with_correlation_extraction(inner_callback)
@@ -352,7 +353,7 @@ class TestMqttCallbackWithCorrelationExtraction:
 class TestSetupMqttCorrelation:
     """Tests for setup_mqtt_correlation."""
 
-    def test_setup_mqtt_correlation_wraps_on_message(self):
+    def test_setup_mqtt_correlation_wraps_on_message(self) -> None:
         """Test setup wraps on_message callback."""
         mock_client = MagicMock()
         original_callback = MagicMock()
@@ -363,7 +364,7 @@ class TestSetupMqttCorrelation:
         assert mock_client.on_message is not original_callback
         assert mock_client._correlation_publish is not None
 
-    def test_setup_mqtt_correlation_handles_none_on_message(self):
+    def test_setup_mqtt_correlation_handles_none_on_message(self) -> None:
         """Test setup handles client with no on_message."""
         mock_client = MagicMock()
         mock_client.on_message = None
