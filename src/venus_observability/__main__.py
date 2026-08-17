@@ -14,6 +14,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -77,7 +78,7 @@ def setup_telemetry(
 
     # Register custom correlation propagator
     _correlation_propagator = CorrelationIDPropagator()
-    tracer_provider.add_span_processor(_correlation_propagator)  # type: ignore[attr-defined]
+    set_global_textmap(_correlation_propagator)
 
     # Instrument MQTT client with correlation ID propagation (optional)
     try:
