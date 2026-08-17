@@ -38,7 +38,7 @@ class TestSetupTelemetry:
     """Tests for setup_telemetry function."""
 
     @pytest.fixture
-    def telemetry_mocks(self):
+    def telemetry_mocks(self) -> Generator[dict[str, MagicMock], None, None]:
         """Common mocks for telemetry tests."""
         with (
             patch("venus_observability.__main__.Resource.create") as mock_resource_create,
@@ -65,7 +65,7 @@ class TestSetupTelemetry:
                 "tracer_provider": mock_tracer_provider,
             }
 
-    def test_setup_telemetry_basic(self, telemetry_mocks) -> None:
+    def test_setup_telemetry_basic(self, telemetry_mocks: dict[str, MagicMock]) -> None:
         """Test basic telemetry setup without OTLP endpoint."""
         mock_meter_provider = MagicMock()
         with (
@@ -84,9 +84,9 @@ class TestSetupTelemetry:
         telemetry_mocks["set_tracer_provider"].assert_called_once_with(
             telemetry_mocks["tracer_provider"]
         )
-        telemetry_mocks["tracer_provider"].add_span_processor.assert_not_called()
+        assert not telemetry_mocks["tracer_provider"].add_span_processor.called
 
-    def test_setup_telemetry_with_otlp(self, telemetry_mocks) -> None:
+    def test_setup_telemetry_with_otlp(self, telemetry_mocks: dict[str, MagicMock]) -> None:
         """Test telemetry setup with OTLP endpoint."""
         mock_meter_provider = MagicMock()
         mock_otlp_exporter = MagicMock()

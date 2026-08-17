@@ -15,6 +15,9 @@ sys.modules["gi"] = MagicMock()
 sys.modules["gi.repository"] = MagicMock()
 sys.modules["gi.repository.GLib"] = MagicMock()
 
+# Add src to path so we can import venus_observability
+sys.path.insert(0, "src")
+
 # pylint: disable=wrong-import-position
 from venus_observability.metrics import VictronMetrics  # noqa: E402
 
