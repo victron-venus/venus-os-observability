@@ -44,10 +44,10 @@ class TestSetupTelemetry:
     @patch("venus_observability.__main__.Resource.create")
     def test_setup_telemetry_basic(self, *mocks):
         """Test basic telemetry setup without OTLP endpoint."""
-        mock_start_http_server = mocks[0]
-        mock_resource_create = mocks[5]
-        mock_set_tracer_provider = mocks[4]
-        mock_tracer_provider_class = mocks[3]
+        mock_resource_create = mocks[0]
+        mock_set_tracer_provider = mocks[1]
+        mock_tracer_provider_class = mocks[2]
+        mock_start_http_server = mocks[5]
         mock_resource = MagicMock()
         mock_resource_create.return_value = mock_resource
 
@@ -79,10 +79,10 @@ class TestSetupTelemetry:
     @patch("venus_observability.__main__.Resource.create")
     def test_setup_telemetry_with_otlp(self, *mocks):
         """Test telemetry setup with OTLP endpoint."""
-        mock_resource_create = mocks[5]
-        mock_tracer_provider_class = mocks[3]
-        mock_batch_span_processor = mocks[2]
-        mock_otlp_exporter_class = mocks[1]
+        mock_resource_create = mocks[0]
+        mock_tracer_provider_class = mocks[2]
+        mock_batch_span_processor = mocks[3]
+        mock_otlp_exporter_class = mocks[4]
         mock_resource = MagicMock()
         mock_resource_create.return_value = mock_resource
 

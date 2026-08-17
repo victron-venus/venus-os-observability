@@ -19,19 +19,19 @@ from venus_observability.metrics import VictronMetrics
 
 
 @pytest.fixture
-def mock_metrics():
+def mock_metrics() -> MagicMock:
     """Create a mock VictronMetrics."""
     return MagicMock(spec=VictronMetrics)
 
 
 @pytest.fixture
-def mock_tracer():
+def mock_tracer() -> MagicMock:
     """Create a mock tracer."""
     return MagicMock()
 
 
 @pytest.fixture
-def mock_dbus_bus():
+def mock_dbus_bus() -> MagicMock:
     """Create a mock D-Bus bus."""
     return MagicMock()
 
@@ -39,7 +39,9 @@ def mock_dbus_bus():
 class TestDBusSignalListener:
     """Tests for DBusSignalListener."""
 
-    def test_init(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_init(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test listener initialization."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         assert listener.metrics is mock_metrics
@@ -48,7 +50,9 @@ class TestDBusSignalListener:
         assert listener._subscriptions == set()
         assert listener._match_rules == []
 
-    def test_subscribe_creates_match_rule(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_subscribe_creates_match_rule(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test subscribe creates correct match rule."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         listener.subscribe("com.victronenergy.battery.ttyO1", "/Soc")
@@ -66,7 +70,9 @@ class TestDBusSignalListener:
         assert ("com.victronenergy.battery.ttyO1", "/Soc") in listener._subscriptions
         assert len(listener._match_rules) == 1
 
-    def test_subscribe_duplicate_ignored(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_subscribe_duplicate_ignored(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test duplicate subscriptions are ignored."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         listener.subscribe("com.victronenergy.battery.ttyO1", "/Soc")
@@ -75,7 +81,9 @@ class TestDBusSignalListener:
         # Should only call add_match_string once
         assert mock_dbus_bus.add_match_string.call_count == 1
 
-    def test_subscribe_service(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_subscribe_service(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test subscribing to multiple paths on a service."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         paths = ["/Soc", "/Dc/0/Voltage", "/Dc/0/Current"]
@@ -85,7 +93,9 @@ class TestDBusSignalListener:
         for path in paths:
             assert ("com.victronenergy.battery.ttyO1", path) in listener._subscriptions
 
-    def test_subscribe_handles_dbus_exception(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_subscribe_handles_dbus_exception(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test subscribe handles D-Bus exceptions gracefully."""
         import dbus
 
@@ -99,8 +109,12 @@ class TestDBusSignalListener:
 
     @patch("venus_observability.dbus_listener.trace")
     def test_message_filter_items_changed(
-        self, mock_trace, mock_metrics, mock_tracer, mock_dbus_bus
-    ):
+        self,
+        mock_trace: MagicMock,
+        mock_metrics: MagicMock,
+        mock_tracer: MagicMock,
+        mock_dbus_bus: MagicMock,
+    ) -> None:
         """Test message filter processes ItemsChanged signals."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
 
@@ -132,8 +146,12 @@ class TestDBusSignalListener:
 
     @patch("venus_observability.dbus_listener.trace")
     def test_message_filter_ignores_non_items_changed(
-        self, mock_trace, mock_metrics, mock_tracer, mock_dbus_bus
-    ):
+        self,
+        mock_trace: MagicMock,
+        mock_metrics: MagicMock,
+        mock_tracer: MagicMock,
+        mock_dbus_bus: MagicMock,
+    ) -> None:
         """Test message filter ignores non-ItemsChanged messages."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
 
@@ -144,7 +162,9 @@ class TestDBusSignalListener:
 
         mock_metrics.update_from_dbus.assert_not_called()
 
-    def test_message_filter_ignores_empty_args(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_message_filter_ignores_empty_args(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test message filter ignores messages with no args."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
 
@@ -156,7 +176,9 @@ class TestDBusSignalListener:
 
         mock_metrics.update_from_dbus.assert_not_called()
 
-    def test_start_creates_main_loop(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_start_creates_main_loop(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test start creates GLib main loop."""
         with patch("venus_observability.dbus_listener.GLib") as mock_glib:
             mock_main_loop = MagicMock()
@@ -170,7 +192,9 @@ class TestDBusSignalListener:
             assert listener._main_loop is mock_main_loop
             mock_glib.MainLoop.assert_called_once()
 
-    def test_stop_quits_main_loop(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_stop_quits_main_loop(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test stop quits main loop and removes matches."""
         with patch("venus_observability.dbus_listener.GLib"):
             listener = DBusSignalListener(
@@ -187,7 +211,9 @@ class TestDBusSignalListener:
             assert listener._match_rules == []
             assert listener._subscriptions == set()
 
-    def test_stop_handles_not_running(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_stop_handles_not_running(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test stop handles non-running main loop."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         listener._main_loop = MagicMock()
@@ -201,12 +227,12 @@ class TestDBusSignalListener:
 class TestVictronServiceDiscovery:
     """Tests for VictronServiceDiscovery."""
 
-    def test_init(self, mock_dbus_bus):
+    def test_init(self, mock_dbus_bus: MagicMock) -> None:
         """Test discovery initialization."""
         discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
         assert discovery.bus is mock_dbus_bus
 
-    def test_find_victron_services(self, mock_dbus_bus):
+    def test_find_victron_services(self, mock_dbus_bus: MagicMock) -> None:
         """Test finding Victron services."""
         discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
 
@@ -240,7 +266,7 @@ class TestVictronServiceDiscovery:
         assert "/Soc" in services["com.victronenergy.battery.ttyO1"]
         assert "/Dc" in services["com.victronenergy.battery.ttyO1"]
 
-    def test_find_victron_services_handles_exception(self, mock_dbus_bus):
+    def test_find_victron_services_handles_exception(self, mock_dbus_bus: MagicMock) -> None:
         """Test find_victron_services handles DBus exceptions."""
         import dbus
 
@@ -250,7 +276,7 @@ class TestVictronServiceDiscovery:
         services = discovery.find_victron_services()
         assert services == {}
 
-    def test_introspect_service(self, mock_dbus_bus):
+    def test_introspect_service(self, mock_dbus_bus: MagicMock) -> None:
         """Test service introspection."""
         discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
         mock_obj = MagicMock()
@@ -262,7 +288,7 @@ class TestVictronServiceDiscovery:
         assert "/Soc" in paths
         assert "/Dc" in paths
 
-    def test_get_known_paths(self, mock_dbus_bus):
+    def test_get_known_paths(self, mock_dbus_bus: MagicMock) -> None:
         """Test getting known paths for service types."""
         discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
 
@@ -290,7 +316,9 @@ class TestVictronServiceDiscovery:
 class TestExtractHeadersFromMessage:
     """Tests for extracting headers from D-Bus message."""
 
-    def test_extract_headers_returns_empty_dict(self, mock_metrics, mock_tracer, mock_dbus_bus):
+    def test_extract_headers_returns_empty_dict(
+        self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
+    ) -> None:
         """Test _extract_headers_from_message returns empty dict."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         mock_message = MagicMock()
@@ -300,7 +328,9 @@ class TestExtractHeadersFromMessage:
 
 @patch("venus_observability.dbus_listener.DBusSignalListener")
 @patch("venus_observability.dbus_listener.VictronServiceDiscovery")
-async def test_create_listener(mock_discovery_class, mock_listener_class, mock_metrics):
+async def test_create_listener(
+    mock_discovery_class: MagicMock, mock_listener_class: MagicMock, mock_metrics: MagicMock
+) -> None:
     """Test create_listener async function."""
     from venus_observability.dbus_listener import create_listener
 

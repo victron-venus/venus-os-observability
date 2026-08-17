@@ -6,6 +6,7 @@ Tests for correlation ID utilities.
 # pylint: disable=redefined-outer-name,unused-variable,unused-argument
 
 import sys
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,7 +30,7 @@ from venus_observability.correlation import (
 
 
 @pytest.fixture(autouse=True)
-def reset_context() -> None:
+def reset_context() -> Generator[None, None, None]:
     """Reset correlation ID context before each test."""
     # Set to None to clear any leftover state - don't reset the token
     # so context stays None for the test duration
@@ -283,14 +284,18 @@ class TestTraceHelpers:
     """Tests for trace helper functions."""
 
     @patch("venus_observability.correlation.trace.get_current_span")
-    def test_get_current_trace_context_returns_none_when_no_span(self, mock_get_span) -> None:
+    def test_get_current_trace_context_returns_none_when_no_span(
+        self, mock_get_span: MagicMock
+    ) -> None:
         """Test returns None when no recording span."""
         mock_get_span.return_value = None
         result = get_current_trace_context()
         assert result is None
 
     @patch("venus_observability.correlation.trace.get_current_span")
-    def test_get_current_trace_context_returns_none_when_not_recording(self, mock_get_span) -> None:
+    def test_get_current_trace_context_returns_none_when_not_recording(
+        self, mock_get_span: MagicMock
+    ) -> None:
         """Test returns None when span not recording."""
         mock_span = MagicMock()
         mock_span.is_recording.return_value = False
@@ -299,7 +304,7 @@ class TestTraceHelpers:
         assert result is None
 
     @patch("venus_observability.correlation.trace.get_current_span")
-    def test_get_current_trace_context_returns_context(self, mock_get_span) -> None:
+    def test_get_current_trace_context_returns_context(self, mock_get_span: MagicMock) -> None:
         """Test returns trace context when span is recording."""
         mock_span = MagicMock()
         mock_span.is_recording.return_value = True
@@ -319,7 +324,7 @@ class TestTraceHelpers:
         assert result["trace_flags"] == "01"
 
     @patch("venus_observability.correlation.trace.Tracer")
-    def test_create_span_with_correlation(self, mock_tracer_class) -> None:
+    def test_create_span_with_correlation(self, mock_tracer_class: MagicMock) -> None:
         """Test creating span with correlation ID."""
         mock_tracer = MagicMock()
         mock_span = MagicMock()
@@ -336,7 +341,7 @@ class TestTraceHelpers:
         assert kwargs["attributes"]["correlation.id"] == "test-span-corr"
 
     @patch("venus_observability.correlation.trace.Tracer")
-    def test_traced_operation_alias(self, mock_tracer_class) -> None:
+    def test_traced_operation_alias(self, mock_tracer_class: MagicMock) -> None:
         """Test traced_operation is alias for create_span_with_correlation."""
         mock_tracer = MagicMock()
         mock_span = MagicMock()
