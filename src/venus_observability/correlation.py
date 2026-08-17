@@ -50,7 +50,11 @@ def reset_correlation_id(token: contextvars.Token[str | None]) -> None:
 
 def _get_header_case_insensitive(headers: dict[str, str], name: str) -> str | None:
     """Get header value case-insensitively."""
-    return headers.get(name) or headers.get(name.lower())
+    name_lower = name.lower()
+    for k, v in headers.items():
+        if k.lower() == name_lower:
+            return v
+    return None
 
 
 def _extract_from_traceparent(traceparent: str) -> str | None:
