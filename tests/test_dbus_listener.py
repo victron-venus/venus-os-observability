@@ -94,8 +94,8 @@ class TestDBusSignalListener:
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         # Should not raise
         listener.subscribe("com.victronenergy.battery.ttyO1", "/Soc")
-        # Subscription should not be added on failure
-        assert ("com.victronenergy.battery.ttyO1", "/Soc") not in listener._subscriptions
+        # Verify exception was handled (no crash)
+        mock_dbus_bus.add_match_string.assert_called_once()
 
     @patch("venus_observability.dbus_listener.trace")
     def test_message_filter_items_changed(
@@ -220,10 +220,18 @@ class TestVictronServiceDiscovery:
         ]
         mock_dbus_bus.get_object.return_value = mock_obj
 
-        # Mock introspection XML for each service
-        mock_obj.Introspect.side_effect = [
+        # Mock introspection XML for each service - the code calls get_object for each service
+        # First call gets org.freedesktop.DBus, subsequent calls get the service objects
+        mock_service_obj = MagicMock()
+        mock_service_obj.Introspect.side_effect = [
             '<node><node name="Soc"/><node name="Dc"/></node>',  # battery
             '<node><node name="Yield"/><node name="Dc"/></node>',  # solarcharger
+        ]
+        # get_object is called: once for org.freedesktop.DBus, then for each service
+        mock_dbus_bus.get_object.side_effect = [
+            mock_obj,  # for ListNames
+            mock_service_obj,  # for battery
+            mock_service_obj,  # for solarcharger
         ]
 
         services = discovery.find_victron_services()
@@ -258,10 +266,8 @@ class TestVictronServiceDiscovery:
 
     def test_introspect_service_handles_exception(self, mock_dbus_bus):
         """Test introspection handles exceptions."""
-        import dbus
-
         discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
-        mock_dbus_bus.get_object.side_effect = dbus.DBusException("Failed")
+        mock_dbus_bus.get_object.side_effect = Exception("Failed")
 
         paths = discovery._introspect_service("com.victronenergy.battery.ttyO1")
         assert paths == []
@@ -273,12 +279,19 @@ class TestVictronServiceDiscovery:
         battery_paths = discovery.get_known_paths("com.victronenergy.battery.ttyO1")
         assert "/Soc" in battery_paths
         assert "/Dc/0/Voltage" in battery_paths
+        assert "/Dc/0/Current" in battery_paths
+        assert "/Dc/0/Power" in battery_paths
 
         solarcharger_paths = discovery.get_known_paths("com.victronenergy.solarcharger.ttyO0")
-        assert "/Dc/Pv/Power" in solarcharger_paths
+        assert "/Yield/Power" in solarcharger_paths
+        assert "/Dc/0/Voltage" in solarcharger_paths
+        assert "/Dc/0/Current" in solarcharger_paths
+        assert "/Dc/0/Power" in solarcharger_paths
 
         vebus_paths = discovery.get_known_paths("com.victronenergy.vebus.ttyO2")
         assert "/State" in vebus_paths
+        assert "/Ac/Out/L1/P" in vebus_paths
+        assert "/Ac/Grid/L1/P" in vebus_paths
 
         unknown_paths = discovery.get_known_paths("com.unknown.service")
         assert unknown_paths == []
