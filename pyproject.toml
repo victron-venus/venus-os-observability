@@ -1,6 +1,6 @@
 [project]
 name = "venus-os-observability"
-version = "0.1.0"
+version = "0.1.3"
 description = "OpenTelemetry/Prometheus observability for Venus OS - D-Bus event tracing, inverter metrics, distributed tracing"
 readme = "README.md"
 license = {text = "MIT"}
