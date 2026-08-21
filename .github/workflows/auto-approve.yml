@@ -1,37 +1,17 @@
-name: 'Auto Approve'
-description: 'Auto-approve Dependabot and Renovate PRs'
-on:
-  workflow_call:
-    inputs:
-      pr-author:
-        description: 'PR author to auto-approve (comma-separated)'
-        type: string
-        default: 'dependabot[bot],renovate[bot]'
-      required-reviews:
-        description: 'Number of required approvals'
-        type: string
-        default: '1'
-      pr-types:
-        description: 'PR types to auto-approve (comma-separated: dependencies, all)'
-        type: string
-        default: 'dependencies'
-      secrets:
-      BOT_PAT:
-        required: true
+name: 'Auto Approve PRs'
+description: 'Auto-approve Dependabot, Renovate, and 4alvit PRs'
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   auto-approve:
     name: Auto Approve
-    runs-on: ubuntu-latest
-    env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Auto Approve
-        uses: hmarr/auto-approve-action@f0939ea97e9205ef24d872e76833fa908a770363
-        with:
-          github-token: ${{ secrets.BOT_PAT }}
-          pr-author: ${{ inputs.pr-author }}
-          required-reviews: ${{ inputs.required-reviews }}
-          pr-types: ${{ inputs.pr-types }}
+    uses: victron-venus/venus-os-ci-toolkit/.github/workflows/auto-approve-reusable.yml@c0eecd420019a4c631314029130d51c707b9d3a9
+    with:
+      pr-author: 'dependabot[bot],renovate[bot],4alvit'
