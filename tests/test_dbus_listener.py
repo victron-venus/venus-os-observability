@@ -48,7 +48,7 @@ class TestDBusSignalListener:
         assert listener.bus is mock_dbus_bus
         assert listener.tracer is mock_tracer
         assert listener._subscriptions == set()
-        assert listener._match_rules == []
+        assert not listener._match_rules
 
     def test_subscribe_creates_match_rule(
         self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
@@ -119,13 +119,13 @@ class TestDBusSignalListener:
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
 
         # Create mock message
+        # Real Venus OS payload: signal at path "/", dict of absolute paths -> {Value, Text}
         mock_message = MagicMock()
         mock_message.get_member.return_value = "ItemsChanged"
         mock_message.get_sender.return_value = "com.victronenergy.battery.ttyO1"
-        mock_message.get_path.return_value = "/Soc"
+        mock_message.get_path.return_value = "/"
         mock_message.get_args_list.return_value = [
-            {"Value": 85.5},  # changed
-            [],  # removed
+            {"/Soc": {"Value": 85.5, "Text": "85.50"}},  # changed
         ]
 
         # Mock tracer span context manager
@@ -140,8 +140,9 @@ class TestDBusSignalListener:
         mock_metrics.update_from_dbus.assert_called_once()
         args, _ = mock_metrics.update_from_dbus.call_args
         assert args[0] == "com.victronenergy.battery.ttyO1"
-        # Path should be /Soc/Value (path + key)
-        assert args[1] == "/Soc/Value"
+        # Keys in the ItemsChanged dict are absolute item paths
+        assert args[1] == "/Soc"
+        # {Value, Text} envelope is unwrapped before metric updates
         assert args[2] == 85.5
 
     @patch("venus_observability.dbus_listener.trace")
@@ -208,7 +209,7 @@ class TestDBusSignalListener:
 
             listener._main_loop.quit.assert_called_once()
             assert mock_dbus_bus.remove_match_string.call_count == 2
-            assert listener._match_rules == []
+            assert not listener._match_rules
             assert listener._subscriptions == set()
 
     def test_stop_handles_not_running(
@@ -274,7 +275,7 @@ class TestVictronServiceDiscovery:
         mock_dbus_bus.get_object.side_effect = dbus.DBusException("Failed")
 
         services = discovery.find_victron_services()
-        assert services == {}
+        assert not services
 
     def test_introspect_service(self, mock_dbus_bus: MagicMock) -> None:
         """Test service introspection."""
@@ -310,7 +311,7 @@ class TestVictronServiceDiscovery:
         assert "/Ac/Grid/L1/P" in vebus_paths
 
         unknown_paths = discovery.get_known_paths("com.unknown.service")
-        assert unknown_paths == []
+        assert not unknown_paths
 
 
 class TestExtractHeadersFromMessage:
@@ -323,7 +324,7 @@ class TestExtractHeadersFromMessage:
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
         mock_message = MagicMock()
         headers = listener._extract_headers_from_message(mock_message)
-        assert headers == {}
+        assert not headers
 
 
 @patch("venus_observability.dbus_listener.DBusSignalListener")

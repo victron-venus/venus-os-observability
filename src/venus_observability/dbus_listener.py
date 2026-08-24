@@ -2,7 +2,11 @@
 D-Bus signal listener for Victron devices with OpenTelemetry tracing.
 """
 
+# Lazy annotations: Venus OS ships a stripped dbus-python without dbus.Message
+from __future__ import annotations
+
 import logging
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
@@ -42,8 +46,59 @@ class DBusSignalListener:
         self.tracer = tracer or trace.get_tracer(__name__)
         self.logger = logging.getLogger(__name__)
         self._main_loop: GLib.MainLoop | None = None
+        self._loop_thread: threading.Thread | None = None
         self._subscriptions: set[tuple[str, str]] = set()
         self._match_rules: list[str] = []
+        # Victron services emit from unique names (:1.x); map them to well-known names
+        self._owner_cache: dict[str, str] = {}
+        self._owner_cache_ts: float = 0.0
+
+    def subscribe_global(self) -> None:
+        """Subscribe to all Victron BusItem ItemsChanged signals.
+
+        Victron services emit ItemsChanged from the root object path ``/``
+        with a dict of absolute item paths, so one global match rule covers
+        every service (per-path rules never match).
+        """
+        try:
+            match_rule = (
+                "type='signal',interface='com.victronenergy.BusItem',member='ItemsChanged',path='/'"
+            )
+            self.bus.add_match_string(match_rule)
+            self.bus.add_message_filter(self._message_filter)
+            self._match_rules.append(match_rule)
+            self.logger.info("Subscribed to Victron ItemsChanged signals")
+        except dbus.DBusException as e:
+            self.logger.warning("Failed to subscribe to Victron signals: %s", e)
+
+    def _resolve_service_name(self, unique_name: str | None) -> str | None:
+        """Map a D-Bus unique name (:1.x) to its well-known Victron service name."""
+        if not unique_name:
+            return None
+        if not unique_name.startswith(":"):
+            return unique_name
+        cached = self._owner_cache.get(unique_name)
+        if cached:
+            return cached
+        # Refresh at most once per 60s on unknown senders
+        now = time.monotonic()
+        if now - self._owner_cache_ts > 60:
+            self._refresh_owner_cache()
+            self._owner_cache_ts = now
+            return self._owner_cache.get(unique_name)
+        return None
+
+    def _refresh_owner_cache(self) -> None:
+        """Build unique-name -> well-known-name cache for Victron services."""
+        try:
+            obj = self.bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+            iface = dbus.Interface(obj, "org.freedesktop.DBus")
+            for name in iface.ListNames():
+                if str(name).startswith("com.victronenergy."):
+                    owner = iface.GetNameOwner(name)
+                    self._owner_cache[str(owner)] = str(name)
+        except dbus.DBusException as e:
+            self.logger.warning("Owner cache refresh failed: %s", e)
 
     def subscribe(
         self,
@@ -94,28 +149,25 @@ class DBusSignalListener:
             return
 
         try:
-            sender = message.get_sender()
-            path = message.get_path()
+            raw_sender = str(message.get_sender() or "")
             args = message.get_args_list()
 
             if not args:
                 return
 
-            # Args format: [changed_dict, removed_list]
+            # ItemsChanged payload: dict of absolute item paths -> {Value, Text}
             changed = args[0] if isinstance(args[0], dict) else {}
-            removed = args[1] if isinstance(args[1], list) else []
 
             # Extract correlation ID from message if available
             headers = self._extract_headers_from_message(message)
             correlation_id = extract_correlation_id_from_headers(headers)
 
-            with self._trace_signal(sender, path, changed, correlation_id) as span:
-                for key, value in changed.items():
-                    full_path = f"{path}/{key}" if key else path
-                    self._handle_value(sender, full_path, value, span)
+            service = self._resolve_service_name(raw_sender) or raw_sender or "unknown"
 
-                for key in removed:
-                    self.logger.debug("D-Bus path removed: %s%s/%s", sender, path, key)
+            with self._trace_signal(service, "/", dict(changed), correlation_id) as span:
+                for key, value in changed.items():
+                    full_path = str(key)
+                    self._handle_value(service, full_path, value, span)
 
         except Exception as e:
             self.logger.error("Error processing D-Bus signal: %s", e)
@@ -162,20 +214,36 @@ class DBusSignalListener:
         # Add to span
         span.set_attribute(f"dbus.value.{path}", str(value))
 
+        # Victron ItemsChanged values arrive as {Value: x, Text: "..."}
+        raw = value
+        if isinstance(raw, dict):
+            raw = raw.get("Value", raw.get("Text"))
+
         # Update OpenTelemetry metrics
-        self.metrics.update_from_dbus(service, path, value)
+        self.metrics.update_from_dbus(service, path, raw)
 
         # Update Prometheus metrics
-        update_prometheus_from_dbus(service, path, value)
+        update_prometheus_from_dbus(service, path, raw)
 
         # Record latency
         latency_ms = (time.perf_counter() - start_time) * 1000
         span.set_attribute("dbus.processing_latency_ms", latency_ms)
 
     def start(self) -> None:
-        """Start the D-Bus event loop in background."""
+        """Start the D-Bus event loop in a background thread."""
         self.logger.info("Starting D-Bus event loop")
+        self._loop_thread = threading.Thread(
+            target=self._run_loop, name="dbus-mainloop", daemon=True
+        )
+        self._loop_thread.start()
+
+    def _run_loop(self) -> None:
+        """Create and run the GLib main loop (must own its thread)."""
         self._main_loop = GLib.MainLoop()
+        try:
+            self._main_loop.run()
+        except KeyboardInterrupt:
+            self.logger.info("D-Bus event loop stopped")
 
     def run(self) -> None:
         """Run the D-Bus event loop (blocking)."""
