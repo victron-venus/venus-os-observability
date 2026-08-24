@@ -15,6 +15,9 @@ import os
 import smtplib
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -34,6 +37,11 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "")
 SMTP_TO = [a.strip() for a in os.environ.get("SMTP_TO", "").split(",") if a.strip()]
+
+# Optional Telegram fan-out via the Bot API.
+# Empty TG_BOT_TOKEN or TG_CHAT_ID disables the channel.
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+TG_CHAT_IDS = [c.strip() for c in os.environ.get("TG_CHAT_ID", "").split(",") if c.strip()]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("alert-mqtt-bridge")
@@ -78,6 +86,23 @@ def send_email(name: str, level: str, summary: str, value: str) -> None:
         log.error("Email send failed for %s: %s", name, e)
 
 
+def send_telegram(name: str, level: str, summary: str, value: str) -> None:
+    """Forward one alert as Telegram messages via the Bot API. Best-effort."""
+    icon = "🔴" if level == "critical" else ("🟡" if level == "warning" else "🟢")
+    text = f"{icon} [Venus] {level.upper()}: {summary}"
+    if value:
+        text += f"\n{value}"
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+    for chat_id in TG_CHAT_IDS:
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+        try:
+            with urllib.request.urlopen(url, data=data, timeout=15) as resp:
+                resp.read()
+            log.info("Telegram sent to %s: %s", chat_id, name)
+        except (OSError, urllib.error.URLError) as e:
+            log.error("Telegram send failed for %s -> %s: %s", name, chat_id, e)
+
+
 def publish_alerts(payload: dict) -> int:
     """Map a Grafana webhook payload to MQTT notifications. Returns count."""
     alerts = payload.get("alerts") or []
@@ -105,6 +130,8 @@ def publish_alerts(payload: dict) -> int:
         )
         if SMTP_HOST and SMTP_TO:
             send_email(name, level, summary, value)
+        if TG_BOT_TOKEN and TG_CHAT_IDS:
+            send_telegram(name, level, summary, value)
         count += 1
 
     # Retained snapshot of current alert states for late subscribers.
