@@ -47,7 +47,9 @@ class TestSetupTelemetry:
             ) as mock_set_tracer_provider,
             patch("venus_observability.__main__.TracerProvider") as mock_tracer_provider_class,
             patch("venus_observability.__main__.BatchSpanProcessor") as mock_batch_span_processor,
-            patch("venus_observability.__main__.OTLPSpanExporter") as mock_otlp_exporter_class,
+            patch(
+                "opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"
+            ) as mock_otlp_exporter_class,
             patch("venus_observability.__main__.start_http_server") as mock_start_http_server,
         ):
             mock_resource = MagicMock()

@@ -12,7 +12,6 @@ from types import FrameType
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.metrics import MeterProvider
@@ -64,6 +63,8 @@ def setup_telemetry(
     trace.set_tracer_provider(tracer_provider)
 
     if otlp_endpoint:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
         otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
         logger.info("OTLP trace exporter configured: %s", otlp_endpoint)
@@ -133,6 +134,10 @@ class ObservabilityService:
             metrics=self._metrics,
             tracer=self._tracer_provider.get_tracer(self.service_name),
         )
+
+        # Subscribe to all Victron ItemsChanged signals (single global rule;
+        # signals are emitted at root path / with absolute item paths)
+        self._dbus_listener.subscribe_global()
 
         # Start D-Bus listener
         self._dbus_listener.start()
