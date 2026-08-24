@@ -1,0 +1,143 @@
+"""Grafana alert webhook -> MQTT notification bridge.
+
+Receives Grafana Alerting webhooks and republishes each alert as a
+notification on the shared ``inverter/notifications`` topic, so all
+dashboards (desktop, py, go) show the banner without frontend changes.
+
+Endpoints:
+    POST /grafana  - Grafana webhook payload (JSON)
+    GET  /health   - liveness + MQTT connection state
+"""
+
+import json
+import logging
+import os
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import paho.mqtt.client as mqtt
+
+MQTT_HOST = os.environ.get("MQTT_HOST", "192.168.160.150")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+NOTIFY_TOPIC = os.environ.get("ALERT_TOPIC", "inverter/notifications")
+STATE_TOPIC = os.environ.get("STATE_TOPIC", "venus/alerts")
+LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8095"))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("alert-mqtt-bridge")
+
+client = mqtt.Client(client_id="grafana-alert-bridge", clean_session=True)
+client.reconnect_delay_set(1, 60)
+
+_connect_event = threading.Event()
+
+
+def _on_connect(c, _u, _f, rc, *_props):
+    if rc == 0:
+        log.info("Connected to MQTT %s:%s", MQTT_HOST, MQTT_PORT)
+        _connect_event.set()
+    else:
+        log.warning("MQTT connect failed rc=%s", rc)
+
+
+def _on_disconnect(_c, _u, rc):
+    _connect_event.clear()
+    log.warning("MQTT disconnected rc=%s (auto-reconnect)", rc)
+
+
+client.on_connect = _on_connect
+client.on_disconnect = _on_disconnect
+
+
+def publish_alerts(payload: dict) -> int:
+    """Map a Grafana webhook payload to MQTT notifications. Returns count."""
+    alerts = payload.get("alerts") or []
+    count = 0
+    for alert in alerts:
+        labels = alert.get("labels", {})
+        name = labels.get("alertname", "unknown")
+        status = alert.get("status", "firing")
+        summary = alert.get("annotations", {}).get("summary") or name
+        value = alert.get("valueString", "")
+        severity = labels.get("severity", "warning")
+
+        if status == "resolved":
+            level = "info"
+            message = f"Grafana RESOLVED: {summary}"
+        else:
+            level = "critical" if severity == "critical" else "warning"
+            message = f"Grafana: {summary}" + (f" [{value}]" if value else "")
+
+        # ponytail: fire-and-forget publish; alerts missed while broker is down
+        # are acceptable because rules keep firing state visible in Grafana UI.
+        client.publish(
+            NOTIFY_TOPIC,
+            json.dumps({"id": f"grafana-{name}-{status}", "level": level, "message": message}),
+        )
+        count += 1
+
+    # Retained snapshot of current alert states for late subscribers.
+    snapshot = [
+        {
+            "name": a.get("labels", {}).get("alertname", "unknown"),
+            "status": a.get("status", "firing"),
+            "summary": a.get("annotations", {}).get("summary"),
+            "value": a.get("valueString"),
+            "since": a.get("startsAt"),
+        }
+        for a in alerts
+    ]
+    client.publish(
+        STATE_TOPIC, json.dumps({"updated": time.time(), "alerts": snapshot}), retain=True
+    )
+    return count
+
+
+class Handler(BaseHTTPRequestHandler):
+    """HTTP endpoints for Grafana webhooks and liveness checks."""
+
+    def do_POST(self):  # pylint: disable=invalid-name  # noqa: N802
+        """Accept a Grafana webhook payload on /grafana."""
+        if self.path != "/grafana":
+            self.send_error(404)
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            n = publish_alerts(payload)
+            log.info("Webhook: %d alert(s), status=%s", n, payload.get("status"))
+            self.send_response(200)
+        except (ValueError, KeyError) as e:
+            log.error("Bad webhook payload: %s", e)
+            self.send_response(400)
+        self.end_headers()
+
+    def do_GET(self):  # pylint: disable=invalid-name  # noqa: N802
+        """Liveness endpoint on /health."""
+        if self.path != "/health":
+            self.send_error(404)
+            return
+        body = json.dumps({"mqtt_connected": client.is_connected()}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):  # pylint: disable=arguments-differ
+        """Silence per-request access logs; app logs cover it."""
+
+
+if __name__ == "__main__":
+    client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
+    client.loop_start()
+    log.info(
+        "Listening :%s -> MQTT %s:%s topics %s/%s",
+        LISTEN_PORT,
+        MQTT_HOST,
+        MQTT_PORT,
+        NOTIFY_TOPIC,
+        STATE_TOPIC,
+    )
+    ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler).serve_forever()
