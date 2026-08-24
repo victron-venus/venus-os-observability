@@ -12,8 +12,10 @@ Endpoints:
 import json
 import logging
 import os
+import smtplib
 import threading
 import time
+from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import paho.mqtt.client as mqtt
@@ -24,6 +26,15 @@ NOTIFY_TOPIC = os.environ.get("ALERT_TOPIC", "inverter/notifications")
 STATE_TOPIC = os.environ.get("STATE_TOPIC", "venus/alerts")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8095"))
 
+# Optional email fan-out via external SMTP relay (e.g. Brevo :587).
+# Empty SMTP_HOST or SMTP_TO disables the channel.
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "")
+SMTP_TO = [a.strip() for a in os.environ.get("SMTP_TO", "").split(",") if a.strip()]
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("alert-mqtt-bridge")
 
@@ -33,7 +44,7 @@ client.reconnect_delay_set(1, 60)
 _connect_event = threading.Event()
 
 
-def _on_connect(c, _u, _f, rc, *_props):
+def _on_connect(_c, _u, _f, rc, *_props):
     if rc == 0:
         log.info("Connected to MQTT %s:%s", MQTT_HOST, MQTT_PORT)
         _connect_event.set()
@@ -48,6 +59,23 @@ def _on_disconnect(_c, _u, rc):
 
 client.on_connect = _on_connect
 client.on_disconnect = _on_disconnect
+
+
+def send_email(name: str, level: str, summary: str, value: str) -> None:
+    """Forward one alert as email via the SMTP relay. Best-effort."""
+    msg = EmailMessage()
+    msg["From"] = SMTP_FROM
+    msg["To"] = ", ".join(SMTP_TO)
+    msg["Subject"] = f"[Venus] {level.upper()}: {summary}"
+    msg.set_content(f"{summary}\n\n{value}\n")
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        log.info("Email sent: %s", name)
+    except (OSError, smtplib.SMTPException) as e:
+        log.error("Email send failed for %s: %s", name, e)
 
 
 def publish_alerts(payload: dict) -> int:
@@ -75,6 +103,8 @@ def publish_alerts(payload: dict) -> int:
             NOTIFY_TOPIC,
             json.dumps({"id": f"grafana-{name}-{status}", "level": level, "message": message}),
         )
+        if SMTP_HOST and SMTP_TO:
+            send_email(name, level, summary, value)
         count += 1
 
     # Retained snapshot of current alert states for late subscribers.
