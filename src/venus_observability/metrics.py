@@ -186,7 +186,9 @@ class VictronMetrics:
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
                 self._set_gauge(self.cell_temperature, value, attrs)
-        elif path_lower in ("/dc/pv/power", "/yield/power"):
+        elif path_lower in ("/dc/pv/power", "/yield/power") or (
+            path_lower == "/ac/power" and ".pvinverter." in service
+        ):
             self._set_gauge(self.pv_power, value, attrs)
         elif path_lower == "/ac/grid/power" or self._is_phase_power(path_lower, "grid"):
             attrs = dict(attrs, phase=self._phase_from_path(path))
@@ -255,8 +257,11 @@ def update_prometheus_from_dbus(
         battery_soc.labels(serial=serial).set(float(value))
     elif path_lower == "/dc/0/power":
         battery_power.labels(serial=serial).set(float(value))
-    elif path_lower in ("/dc/pv/power", "/yield/power"):
-        # system aggregates PV as /Dc/Pv/Power; solarcharger services emit /Yield/Power
+    elif path_lower in ("/dc/pv/power", "/yield/power") or (
+        path_lower == "/ac/power" and ".pvinverter." in service
+    ):
+        # system aggregates PV as /Dc/Pv/Power; solarcharger emits /Yield/Power;
+        # dbus-pvinverter services (dbus-tasmota-pv) report PV as /Ac/Power
         pv_power.labels(serial=serial).set(float(value))
     elif path_lower == "/ac/grid/power" or _is_phase_power(path_lower, "grid"):
         # Venus OS emits per-phase paths (/Ac/Grid/L1/Power); aggregate has no phase

@@ -133,7 +133,7 @@ class TestRealVenusPaths:
         update_prometheus_from_dbus(
             "com.victronenergy.solarcharger.ttyUSB3", "/Yield/Power", 1200.0
         )
-        value = pv_power.labels(serial="ttyUSB3")._value.get()  # type: ignore[attr-defined]
+        value = pv_power.labels(serial="ttyUSB3")._value.get()
         assert value == 1200.0
 
     def test_prometheus_per_phase_grid_and_consumption(self) -> None:
@@ -147,15 +147,30 @@ class TestRealVenusPaths:
         update_prometheus_from_dbus("com.victronenergy.system", "/Ac/Grid/L1/Power", 128.0)
         update_prometheus_from_dbus("com.victronenergy.system", "/Ac/Grid/L2/Power", 7.0)
         update_prometheus_from_dbus("com.victronenergy.system", "/Ac/Consumption/L1/Power", 577.0)
-        grid_l1 = grid_power.labels(  # type: ignore[attr-defined]
-            serial="system", phase="l1"
-        )._value.get()
-        grid_l2 = grid_power.labels(  # type: ignore[attr-defined]
-            serial="system", phase="l2"
-        )._value.get()
-        loads_l1 = ac_loads.labels(  # type: ignore[attr-defined]
-            serial="system", phase="l1"
-        )._value.get()
+        grid_l1 = grid_power.labels(serial="system", phase="l1")._value.get()
+        grid_l2 = grid_power.labels(serial="system", phase="l2")._value.get()
+        loads_l1 = ac_loads.labels(serial="system", phase="l1")._value.get()
         assert grid_l1 == 128.0
         assert grid_l2 == 7.0
         assert loads_l1 == 577.0
+
+
+class TestPvinverterAcPower:
+    """dbus-tasmota-pv pvinverter services report PV production as /Ac/Power."""
+
+    def test_prometheus_pvinverter_ac_power_maps_to_pv(self) -> None:
+        """pvinverter /Ac/Power must populate the victron_pv_power gauge."""
+        from venus_observability.metrics import pv_power, update_prometheus_from_dbus
+
+        update_prometheus_from_dbus("com.victronenergy.pvinverter.tasmota_9895", "/Ac/Power", 850.0)
+        value = pv_power.labels(serial="tasmota_9895")._value.get()
+        assert value == 850.0
+
+    def test_grid_service_ac_power_does_not_map_to_pv(self) -> None:
+        """Grid /Ac/Power must not touch the PV gauge."""
+        from venus_observability.metrics import pv_power, update_prometheus_from_dbus
+
+        # /Ac/Power from a grid meter must not touch the PV gauge
+        update_prometheus_from_dbus("com.victronenergy.grid.ve_X", "/Ac/Power", 500.0)
+        value = pv_power.labels(serial="ve_X")._value.get()
+        assert value == 0.0
