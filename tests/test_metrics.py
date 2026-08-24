@@ -114,3 +114,48 @@ class TestVictronMetrics:
         # gauge.set(value, attributes) - attributes is 2nd positional arg
         assert args[1].get("location") == "home"
         assert args[1].get("serial") == "ttyO1"
+
+
+class TestRealVenusPaths:
+    """Tests for mappings of paths actually emitted by Venus OS."""
+
+    def test_otelside_yield_power_maps_to_pv(self, victron_metrics_obj: VictronMetrics) -> None:
+        """/Yield/Power from solarcharger services must feed victron_pv_power."""
+        victron_metrics_obj.update_from_dbus(
+            "com.victronenergy.solarcharger.ttyUSB3", "/Yield/Power", 1048.0
+        )
+        victron_metrics_obj.pv_power.set.assert_called_once()  # type: ignore[attr-defined]
+
+    def test_prometheus_yield_power_maps_to_pv(self) -> None:
+        """/Yield/Power must populate the victron_pv_power gauge."""
+        from venus_observability.metrics import pv_power, update_prometheus_from_dbus
+
+        update_prometheus_from_dbus(
+            "com.victronenergy.solarcharger.ttyUSB3", "/Yield/Power", 1200.0
+        )
+        value = pv_power.labels(serial="ttyUSB3")._value.get()  # type: ignore[attr-defined]
+        assert value == 1200.0
+
+    def test_prometheus_per_phase_grid_and_consumption(self) -> None:
+        """system service emits /Ac/Grid/L1/Power and /Ac/Consumption/L1/Power."""
+        from venus_observability.metrics import (
+            ac_loads,
+            grid_power,
+            update_prometheus_from_dbus,
+        )
+
+        update_prometheus_from_dbus("com.victronenergy.system", "/Ac/Grid/L1/Power", 128.0)
+        update_prometheus_from_dbus("com.victronenergy.system", "/Ac/Grid/L2/Power", 7.0)
+        update_prometheus_from_dbus("com.victronenergy.system", "/Ac/Consumption/L1/Power", 577.0)
+        grid_l1 = grid_power.labels(  # type: ignore[attr-defined]
+            serial="system", phase="l1"
+        )._value.get()
+        grid_l2 = grid_power.labels(  # type: ignore[attr-defined]
+            serial="system", phase="l2"
+        )._value.get()
+        loads_l1 = ac_loads.labels(  # type: ignore[attr-defined]
+            serial="system", phase="l1"
+        )._value.get()
+        assert grid_l1 == 128.0
+        assert grid_l2 == 7.0
+        assert loads_l1 == 577.0
