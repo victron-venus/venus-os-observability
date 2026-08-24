@@ -138,7 +138,7 @@ Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agen
 |---|---|---|
 | MQTT banners | Grafana → `alert-mqtt-bridge` → `inverter/notifications` | ✅ live |
 | Email | Grafana → `alert-mqtt-bridge` → Brevo SMTP relay (`:587`) | ✅ live 2026-08-24 |
-| Telegram | Grafana → Telegram Bot API (or via bridge later) | needs bot token + chat id |
+| Telegram | Grafana → `alert-mqtt-bridge` → Bot API (`@victronbot`) | ✅ live 2026-08-24 |
 
 > **Secrets rule:** real tokens and passwords never go into this repository.
 > README examples keep `<placeholders>`; actual values live in
@@ -195,42 +195,21 @@ For a **group chat**: add the bot to the group, post one message there, then cal
 `getUpdates` again — the group's `chat.id` is negative (e.g. `-1001234567890`);
 use it as-is.
 
-#### 2.3 Create the contact point
+#### 2.3 Wire the bridge (Synology)
 
-SSH to Synology; admin password comes from the container env:
+Grafana's Telegram integration is a silent no-op in this build, same as
+email — the bridge sends instead. Append to
+`/volume1/docker/venus-alert-bridge/envfile` (chmod 600, outside git):
 
-```bash
-export PATH=/usr/local/bin:$PATH
-GP=$(sudo docker exec grafana env | grep GF_SECURITY_ADMIN_PASSWORD | cut -d= -f2)
-
-curl -s -u admin:$GP -X POST http://localhost:3000/api/v1/provisioning/contact-points \
-  -H 'Content-Type: application/json' -d '{
-    "name": "Telegram",
-    "type": "telegram",
-    "settings": {"bottoken": "<YOUR_BOT_TOKEN>", "chatid": "<CHAT_ID>"},
-    "disableResolveMessage": false
-  }'
+```
+TG_BOT_TOKEN=<your-bot-token>
+TG_CHAT_ID=<your-chat-id>
 ```
 
-Note the returned `uid` — needed for the policy fan-out below. The token is stored
-encrypted in Grafana's database, not on disk in plain text.
-
-#### 2.4 Route alerts to both channels
-
-The default notification policy holds ONE receiver. Add a catch-all nested policy so
-every alert fans out to MQTT *and* Telegram (replace uids as printed by the API):
-
-```bash
-curl -s -u admin:$GP -X PUT http://localhost:3000/api/v1/provisioning/policies \
-  -H 'Content-Type: application/json' -d '{
-    "receiver": "MQTT bridge",
-    "group_by": ["grafana_folder", "alertname"],
-    "policies": [{"receiver": "Telegram", "continue": true}]
-  }'
-```
-
-(`continue: true` keeps evaluation going so nested policies chain; when Email is
-added later it becomes another entry after Telegram.)
+(`TG_CHAT_ID` accepts a comma-separated list for group chats.) Then rebuild
+and recreate the container per **Channel 3 → 3.2**. Nothing else to
+configure: every firing/resolved alert goes to MQTT banners + email +
+Telegram from one webhook.
 
 #### 2.5 Verify end-to-end
 
