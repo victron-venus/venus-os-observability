@@ -31,13 +31,13 @@ pv_power = Gauge(
 grid_power = Gauge(
     "victron_grid_power",
     "Grid import/export power in watts (positive = import)",
-    ["serial"],
+    ["serial", "phase"],
 )
 
 ac_loads = Gauge(
     "victron_ac_loads",
     "AC loads consumption in watts",
-    ["serial"],
+    ["serial", "phase"],
 )
 
 inverter_state = Gauge(
@@ -186,14 +186,31 @@ class VictronMetrics:
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
                 self._set_gauge(self.cell_temperature, value, attrs)
-        elif path_lower == "/dc/pv/power":
+        elif path_lower in ("/dc/pv/power", "/yield/power"):
             self._set_gauge(self.pv_power, value, attrs)
-        elif path_lower == "/ac/grid/power":
+        elif path_lower == "/ac/grid/power" or self._is_phase_power(path_lower, "grid"):
+            attrs = dict(attrs, phase=self._phase_from_path(path))
             self._set_gauge(self.grid_power, value, attrs)
-        elif path_lower == "/ac/loads/power":
+        elif (
+            path_lower == "/ac/loads/power"
+            or self._is_phase_power(path_lower, "loads")
+            or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
+        ):
+            attrs = dict(attrs, phase=self._phase_from_path(path))
             self._set_gauge(self.ac_loads, value, attrs)
         elif path_lower == "/state":
             self._set_gauge(self.inverter_state, value, attrs)
+
+    @staticmethod
+    def _phase_from_path(path: str) -> str:
+        """Extract the phase component (e.g. 'l1') from /Ac/<X>/<L1>/Power."""
+        parts = path.split("/")
+        return parts[3].lower() if len(parts) >= 5 and parts[3].lower().startswith("l") else ""
+
+    @staticmethod
+    def _is_phase_power(path_lower: str, section: str) -> bool:
+        """Match per-phase watt paths like /Ac/Grid/L1/Power."""
+        return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith("/power")
 
     def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any]) -> None:
         """Safely set gauge value."""
@@ -214,6 +231,17 @@ class VictronMetrics:
 
 
 # Prometheus-only metrics helpers (for direct /metrics endpoint)
+def _phase_from_path(path: str) -> str:
+    """Extract the phase component (e.g. 'l1') from /Ac/<X>/<L1>/Power."""
+    parts = path.split("/")
+    return parts[3].lower() if len(parts) >= 5 and parts[3].lower().startswith("l") else ""
+
+
+def _is_phase_power(path_lower: str, section: str) -> bool:
+    """Match per-phase watt paths like /Ac/Grid/L1/Power."""
+    return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith("/power")
+
+
 def update_prometheus_from_dbus(
     service: str, path: str, value: Any, serial: str | None = None
 ) -> None:
@@ -227,12 +255,19 @@ def update_prometheus_from_dbus(
         battery_soc.labels(serial=serial).set(float(value))
     elif path_lower == "/dc/0/power":
         battery_power.labels(serial=serial).set(float(value))
-    elif path_lower == "/dc/pv/power":
+    elif path_lower in ("/dc/pv/power", "/yield/power"):
+        # system aggregates PV as /Dc/Pv/Power; solarcharger services emit /Yield/Power
         pv_power.labels(serial=serial).set(float(value))
-    elif path_lower == "/ac/grid/power":
-        grid_power.labels(serial=serial).set(float(value))
-    elif path_lower == "/ac/loads/power":
-        ac_loads.labels(serial=serial).set(float(value))
+    elif path_lower == "/ac/grid/power" or _is_phase_power(path_lower, "grid"):
+        # Venus OS emits per-phase paths (/Ac/Grid/L1/Power); aggregate has no phase
+        grid_power.labels(serial=serial, phase=_phase_from_path(path)).set(float(value))
+    elif (
+        path_lower in ("/ac/loads/power",)
+        or _is_phase_power(path_lower, "loads")
+        or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
+    ):
+        # Per-phase consumption (/Ac/Consumption/L1/Power) or legacy /Ac/Loads/*
+        ac_loads.labels(serial=serial, phase=_phase_from_path(path)).set(float(value))
     elif path_lower == "/state":
         inverter_state.labels(serial=serial).set(int(value))
     elif path_lower.startswith("/dc/0/voltages/cell"):
