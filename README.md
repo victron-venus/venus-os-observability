@@ -101,9 +101,7 @@ pip install -e ".[dev]"
 pip wheel --no-deps --wheel-dir=./wheels .
 pip wheel --wheel-dir=./wheels \
   opentelemetry-api opentelemetry-sdk opentelemetry-exporter-prometheus \
-  opentelemetry-exporter-otlp opentelemetry-instrumentation-requests \
-  opentelemetry-instrumentation-paho-mqtt prometheus-client paho-mqtt \
-  dbus-next pyyaml structlog click
+  opentelemetry-exporter-otlp prometheus-client pyyaml structlog click
 
 # Create release tarball
 tar -czf venus-os-observability-wheels.tar.gz wheels/
