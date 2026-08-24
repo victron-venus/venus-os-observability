@@ -81,16 +81,8 @@ def setup_telemetry(
     _correlation_propagator = CorrelationIDPropagator()
     set_global_textmap(_correlation_propagator)
 
-    # Instrument MQTT client with correlation ID propagation (optional)
-    try:
-        from opentelemetry.instrumentation.paho_mqtt import PahoMqttInstrumentor
-
-        PahoMqttInstrumentor().instrument()
-        logger.info("MQTT instrumentation enabled")
-    except ImportError:
-        logger.warning(
-            "opentelemetry-instrumentation-paho-mqtt not available, MQTT instrumentation disabled"
-        )
+    # Note: no automatic paho-mqtt instrumentation exists in OpenTelemetry contrib;
+    # correlation IDs are propagated explicitly via the CorrelationIDPropagator.
 
     return tracer_provider, meter_provider
 
