@@ -136,9 +136,9 @@ Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agen
 
 | Channel | Path | Status |
 |---|---|---|
-| MQTT banners | Grafana → `alert-mqtt-bridge` → `inverter/notifications` | deployed, default receiver |
-| Telegram | Grafana → Telegram Bot API | needs bot token + chat id |
-| Email | Grafana → external SMTP relay (Brevo/Mailjet, :587) | needs provider account + domain verification |
+| MQTT banners | Grafana → `alert-mqtt-bridge` → `inverter/notifications` | ✅ live |
+| Email | Grafana → `alert-mqtt-bridge` → Brevo SMTP relay (`:587`) | ✅ live 2026-08-24 |
+| Telegram | Grafana → Telegram Bot API (or via bridge later) | needs bot token + chat id |
 
 > **Secrets rule:** real tokens and passwords never go into this repository.
 > README examples keep `<placeholders>`; actual values live in
@@ -242,105 +242,69 @@ ssh root@cerbo 'svc -d /service/venus-os-observability'   # pause
 ssh root@cerbo 'svc -u /service/venus-os-observability'   # resume -> resolved message
 ```
 
-### Channel 3: Email via external SMTP relay
+### Channel 3: Email via alert-mqtt-bridge + external SMTP relay (live)
 
-Tested 2026-08-24: outbound port 25 is **blocked by the ISP**
-(`nc -vz gmail-smtp-in.l.google.com 25` → timed out), and PTR on a residential
-IP is unavailable. Direct delivery from a self-hosted MTA is therefore impossible —
-any local Postfix/Stalwart would stall at the first hop.
+Tested 2026-08-24: outbound port 25 is **blocked by the ISP** and PTR on a
+residential IP is unavailable, so direct delivery from a self-hosted MTA is
+impossible. Additionally, this Grafana build (12.4.2, watchtower-upgraded)
+accepts an Email contact point but delivers silently to nowhere — no SMTP
+attempt logged, no provider-side events. So email fan-out lives in the
+**bridge**, which already receives every webhook reliably:
 
-The working architecture: Grafana authenticates to an **external SMTP relay**
-(transactional email provider) on port 587 and hands mail over TLS; the provider
-delivers onward. Domain `alvit.2560801.xyz` is verified at the provider
-(SPF/DKIM records in your DNS zone), so mail goes out as `alerts@alvit.2560801.xyz`
-with full authorization — no mail server to run, nothing extra on Synology.
-Alert volumes (a few per day) fit every free tier.
-
-#### 3.1 Pick a provider and sign up
-
-| Provider | Free quota | Card required | SMTP endpoint |
-|---|---|---|---|
-| [Brevo](https://www.brevo.com) | 300/day | no | `smtp-relay.brevo.com:587` |
-| [Mailjet](https://www.mailjet.com) | 200/day | no | `in-v3.mailjet.com:587` |
-| [SendGrid](https://sendgrid.com) | 100/day | yes | `smtp.sendgrid.net:587` |
-
-Confirm the signup, log into the console.
-
-#### 3.2 Verify the domain alvit.2560801.xyz
-
-In the provider console open **Senders / Domains → Add domain**, enter
-`alvit.2560801.xyz`. The console prints the exact DNS records — copy them
-verbatim into the DNS zone serving `alvit.2560801.xyz`:
-
-| Record | Typical shape | Purpose |
-|---|---|---|
-| TXT | `v=spf1 include:<provider-spf-domain> -all` at the zone apex | authorizes provider IPs to send for the domain |
-| CNAME or TXT | `<selector>._domainkey.alvit.2560801.xyz` | DKIM signing key |
-| TXT (optional) | `_dmarc.alvit.2560801.xyz` → `v=DMARC1; p=none; rua=mailto:<you@...>` | DMARC reports while tuning |
-
-Press **Verify** in the console once DNS propagates (minutes to an hour).
-The exact hosts/values are provider-specific — always use what the console
-prints, not the shapes above.
-
-#### 3.3 Create SMTP credentials and wire Grafana
-
-Console → **SMTP & API → Create new key** → get login + secret key.
-
-On Synology create `/volume1/docker/inverter-monitoring/.env` next to the compose
-file (compose auto-reads it; file lives outside any git repo):
-
-```bash
-# Brevo example; substitute the endpoint/login/key of your provider
-GF_SMTP_ENABLED=true
-GF_SMTP_HOST=smtp-relay.brevo.com:587
-GF_SMTP_USER=<smtp-login>
-GF_SMTP_PASSWORD=<smtp-key>
-GF_SMTP_FROM_ADDRESS=alerts@alvit.2560801.xyz
-GF_SMTP_FROM_NAME=Venus Alerts
+```
+Grafana rule fires ──webhook──▶ alert-mqtt-bridge ──▶ inverter/notifications (banners)
+                                              └─────▶ Brevo SMTP :587 ──▶ mailbox
 ```
 
-No `SKIP_VERIFY` needed — providers run valid certificates.
+#### 3.1 Provider setup (Brevo, one-time)
 
-```bash
-chmod 600 /volume1/docker/inverter-monitoring/.env
-cd /volume1/docker/inverter-monitoring && sudo docker compose up -d grafana
+1. Sign up at <https://www.brevo.com> (free tier: 300 emails/day, no card).
+2. **Senders & Domains → Senders → Add sender**: use your real mailbox
+   (e.g. a gmail address) and click the confirmation link Brevo emails you.
+   This skips domain/DKIM work entirely; trade-off: mail goes out "via brevo"
+   and may land in spam until you mark it as not-spam once.
+   (Better deliverability later: verify `alvit.2560801.xyz` under Domains,
+   copy the DKIM records into your DNS zone, send from that domain.)
+3. **SMTP & API → SMTP → Create new key**: note LOGIN and SECRET KEY.
+
+#### 3.2 Bridge configuration (Synology)
+
+Secrets live in `/volume1/docker/venus-alert-bridge/envfile` (chmod 600,
+outside any git repo):
+
+```
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=<login>@smtp-brevo.com
+SMTP_PASSWORD=<secret-key>
+SMTP_FROM=<verified-sender@example.com>
+SMTP_TO=<recipient@example.com>
 ```
 
-#### 3.4 Email contact point + fan-out
+`SMTP_HOST` or `SMTP_TO` empty ⇒ email channel disabled, MQTT-only.
+
+Deploy/update the container:
 
 ```bash
-export PATH=/usr/local/bin:$PATH
-GP=$(sudo docker exec grafana env | grep GF_SECURITY_ADMIN_PASSWORD | cut -d= -f2)
-curl -s -u admin:$GP -X POST http://localhost:3000/api/v1/provisioning/contact-points \
-  -H 'Content-Type: application/json' -d '{
-    "name": "Email",
-    "type": "email",
-    "settings": {"addresses": "<you@your-real-mailbox.example>"},
-    "disableResolveMessage": false
-  }'
+cd /volume1/docker/venus-alert-bridge
+sudo docker build -t venus-alert-bridge:latest .
+sudo docker rename venus-alert-bridge venus-alert-bridge-old && sudo docker stop venus-alert-bridge-old
+sudo docker run -d --name venus-alert-bridge --restart unless-stopped \
+  --network inverter-monitoring_monitoring --network-alias venus-alert-bridge \
+  -e MQTT_HOST=192.168.160.150 --env-file envfile venus-alert-bridge:latest
 ```
 
-Extend the policy fan-out (Telegram entry stays, Email chains after it):
+No Email contact point in Grafana and no nested notification policies —
+the default policy stays pointed at the **MQTT bridge** webhook only.
 
-```bash
-curl -s -u admin:$GP -X PUT http://localhost:3000/api/v1/provisioning/policies \
-  -H 'Content-Type: application/json' -d '{
-    "receiver": "MQTT bridge",
-    "group_by": ["grafana_folder", "alertname"],
-    "policies": [
-      {"receiver": "Telegram", "continue": true},
-      {"receiver": "Email", "continue": false}
-    ]
-  }'
-```
+#### 3.3 Verify
 
-#### 3.5 Verify deliverability
-
-1. Trigger a firing alert (stop the agent per 2.5) → check inbox AND spam folder.
-2. The provider console shows per-message events (delivered / bounced /
-   spam-complaints) — the fastest place to diagnose rejects.
-3. Optional one-shot scoring: send a test via the same relay to the address
-   shown at <https://www.mail-tester.com>; aim for ≥9/10.
+1. Trigger a firing alert (stop the agent per channel 2.5).
+2. Bridge log shows `Email sent: <alertname>`; check inbox AND spam folder.
+3. Brevo console → Transactional → Statistics shows per-message events
+   (delivered / blocked / rejected) — fastest place to diagnose rejects.
+4. Optional scoring: send a test via the same relay to the address shown at
+   <https://www.mail-tester.com>; aim for ≥9/10.
 
 ## Development
 
