@@ -138,7 +138,7 @@ Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agen
 |---|---|---|
 | MQTT banners | Grafana → `alert-mqtt-bridge` → `inverter/notifications` | deployed, default receiver |
 | Telegram | Grafana → Telegram Bot API | needs bot token + chat id |
-| Email | Grafana → self-hosted SMTP (Stalwart) on Synology | needs SMTP server setup below |
+| Email | Grafana → external SMTP relay (Brevo/Mailjet, :587) | needs provider account + domain verification |
 
 > **Secrets rule:** real tokens and passwords never go into this repository.
 > README examples keep `<placeholders>`; actual values live in
@@ -242,115 +242,74 @@ ssh root@cerbo 'svc -d /service/venus-os-observability'   # pause
 ssh root@cerbo 'svc -u /service/venus-os-observability'   # resume -> resolved message
 ```
 
-### Channel 3: Email via self-hosted SMTP on Synology
+### Channel 3: Email via external SMTP relay
 
-Goal: Grafana sends alert mail from `alerts@alvit.2560801.xyz` through an
-authenticated SMTP server running on Synology (Stalwart Mail Server, single
-container), signed so receivers accept it (SPF + DKIM + DMARC).
+Tested 2026-08-24: outbound port 25 is **blocked by the ISP**
+(`nc -vz gmail-smtp-in.l.google.com 25` → timed out), and PTR on a residential
+IP is unavailable. Direct delivery from a self-hosted MTA is therefore impossible —
+any local Postfix/Stalwart would stall at the first hop.
 
-#### 3.1 Reality check before you start
+The working architecture: Grafana authenticates to an **external SMTP relay**
+(transactional email provider) on port 587 and hands mail over TLS; the provider
+delivers onward. Domain `alvit.2560801.xyz` is verified at the provider
+(SPF/DKIM records in your DNS zone), so mail goes out as `alerts@alvit.2560801.xyz`
+with full authorization — no mail server to run, nothing extra on Synology.
+Alert volumes (a few per day) fit every free tier.
 
-Self-hosted sending from a residential connection only lands in inboxes if ALL of:
+#### 3.1 Pick a provider and sign up
 
-- [ ] **Outbound port 25 is not blocked by your ISP.** Test:
-      `nc -w 5 gmail-smtp-in.l.google.com 25` — must connect. If blocked, direct
-      delivery cannot work; see fallback at the end of this section.
-- [ ] **Reverse DNS (PTR)** for your public IP resolves to `mail.alvit.2560801.xyz`.
-      Request it from your ISP (only they can set PTR). Gmail/Outlook reject or spam-bin
-      mail from IPs without matching PTR.
-- [ ] DNS records from 3.2 exist and propagate (check with `dig TXT ...`).
-
-If ISP blocks port 25 or refuses PTR: keep Stalwart but configure it as a
-**smart host relay** through any transactional email provider free tier — SPF/DKIM/
-DMARC then switch to the provider's records, and Grafana still talks to local
-Stalwart unchanged. The rest of this section assumes direct delivery works.
-
-#### 3.2 DNS records for alvit.2560801.xyz
-
-Create these in the DNS zone that serves `alvit.2560801.xyz` (replace
-`<PUBLIC-IP>` with your home public address; if it is dynamic use your DDNS name
-in the A record instead):
-
-| Type | Host | Value | Purpose |
+| Provider | Free quota | Card required | SMTP endpoint |
 |---|---|---|---|
-| A | `mail.alvit.2560801.xyz` | `<PUBLIC-IP>` | SMTP server hostname |
-| TXT | `alvit.2560801.xyz` | `v=spf1 a:mail.alvit.2560801.xyz -all` | SPF: only this host may send |
-| TXT | `_dmarc.alvit.2560801.xyz` | `v=DMARC1; p=none; rua=mailto:alerts@alvit.2560801.xyz` | DMARC reports first, tighten to `p=quarantine` once stable |
-| TXT | `<selector>._domainkey.alvit.2560801.xyz` | *(generated in step 3.4 — copy exactly)* | DKIM public key |
+| [Brevo](https://www.brevo.com) | 300/day | no | `smtp-relay.brevo.com:587` |
+| [Mailjet](https://www.mailjet.com) | 200/day | no | `in-v3.mailjet.com:587` |
+| [SendGrid](https://sendgrid.com) | 100/day | yes | `smtp.sendgrid.net:587` |
 
-MX is only needed for *receiving* mail — skip unless you want inbound.
+Confirm the signup, log into the console.
 
-#### 3.3 Deploy Stalwart
+#### 3.2 Verify the domain alvit.2560801.xyz
 
-Add to `/volume1/docker/inverter-monitoring/docker-compose.yml` (same network as
-grafana; no ports published except the admin UI — Grafana talks to it over the
-docker network):
+In the provider console open **Senders / Domains → Add domain**, enter
+`alvit.2560801.xyz`. The console prints the exact DNS records — copy them
+verbatim into the DNS zone serving `alvit.2560801.xyz`:
 
-```yaml
-  stalwart:
-    image: stalwartlabs/stalwart:latest
-    container_name: stalwart
-    volumes:
-      - ./stalwart:/opt/stalwart
-    ports:
-      - "25:25"        # outbound/inbound SMTP
-      - "587:587"      # submission (auth+STARTTLS)
-      - "8080:8080"    # admin UI - restrict via Synology firewall to LAN
-    restart: unless-stopped
-```
+| Record | Typical shape | Purpose |
+|---|---|---|
+| TXT | `v=spf1 include:<provider-spf-domain> -all` at the zone apex | authorizes provider IPs to send for the domain |
+| CNAME or TXT | `<selector>._domainkey.alvit.2560801.xyz` | DKIM signing key |
+| TXT (optional) | `_dmarc.alvit.2560801.xyz` → `v=DMARC1; p=none; rua=mailto:<you@...>` | DMARC reports while tuning |
 
-```bash
-mkdir -p /volume1/docker/inverter-monitoring/stalwart
-cd /volume1/docker/inverter-monitoring && sudo docker compose up -d stalwart
-```
+Press **Verify** in the console once DNS propagates (minutes to an hour).
+The exact hosts/values are provider-specific — always use what the console
+prints, not the shapes above.
 
-First run opens the setup wizard at `http://<synology-ip>:8080`:
+#### 3.3 Create SMTP credentials and wire Grafana
 
-1. Create the administrator account (store the password in a password manager).
-2. Log into the admin UI.
-
-(If port 25 is occupied on the Synology host itself, check with
-`netstat -tlnp | grep :25` and disable the conflicting service first.)
-
-#### 3.4 Configure domain, DKIM, account
-
-In the Stalwart admin UI:
-
-1. **Directory → Domains → Create**: add `alvit.2560801.xyz`.
-2. **DKIM signing** (Settings section): create a signature for the domain —
-   pick selector name e.g. `stalwart`. Stalwart shows the exact DNS record for
-   `<selector>._domainkey.alvit.2560801.xyz`; add it to DNS (table above), then
-   use the UI's verify button.
-3. **Directory → Accounts → Create**: username `alerts`, e-mail
-   `alerts@alvit.2560801.xyz`, set an app-style password — this is what Grafana
-   authenticates with. Store it in `.env` (next step), not in the README.
-
-#### 3.5 Wire Grafana to Stalwart (secrets stay out of git)
+Console → **SMTP & API → Create new key** → get login + secret key.
 
 On Synology create `/volume1/docker/inverter-monitoring/.env` next to the compose
 file (compose auto-reads it; file lives outside any git repo):
 
 ```bash
+# Brevo example; substitute the endpoint/login/key of your provider
 GF_SMTP_ENABLED=true
-GF_SMTP_HOST=stalwart:587
-GF_SMTP_USER=alerts@alvit.2560801.xyz
-GF_SMTP_PASSWORD=<password-from-step-3.4>
+GF_SMTP_HOST=smtp-relay.brevo.com:587
+GF_SMTP_USER=<smtp-login>
+GF_SMTP_PASSWORD=<smtp-key>
 GF_SMTP_FROM_ADDRESS=alerts@alvit.2560801.xyz
 GF_SMTP_FROM_NAME=Venus Alerts
-GF_SMTP_SKIP_VERIFY=true   # self-signed cert until you install a real one
 ```
+
+No `SKIP_VERIFY` needed — providers run valid certificates.
 
 ```bash
 chmod 600 /volume1/docker/inverter-monitoring/.env
 cd /volume1/docker/inverter-monitoring && sudo docker compose up -d grafana
 ```
 
-Later upgrade: issue a Let's Encrypt cert for `mail.alvit.2560801.xyz` in Stalwart
-(DNS-01 challenge), then drop `GF_SMTP_SKIP_VERIFY`.
-
-#### 3.6 Email contact point + fan-out
+#### 3.4 Email contact point + fan-out
 
 ```bash
+export PATH=/usr/local/bin:$PATH
 GP=$(sudo docker exec grafana env | grep GF_SECURITY_ADMIN_PASSWORD | cut -d= -f2)
 curl -s -u admin:$GP -X POST http://localhost:3000/api/v1/provisioning/contact-points \
   -H 'Content-Type: application/json' -d '{
@@ -375,14 +334,13 @@ curl -s -u admin:$GP -X PUT http://localhost:3000/api/v1/provisioning/policies \
   }'
 ```
 
-#### 3.7 Verify deliverability
+#### 3.5 Verify deliverability
 
 1. Trigger a firing alert (stop the agent per 2.5) → check inbox AND spam folder.
-2. Send a test message from the alerts account and score it at
-   <https://www.mail-tester.com> — aim for ≥9/10 (validates SPF/DKIM/DMARC/PTR
-   in one shot).
-3. Watch the queue if mail does not arrive: Stalwart admin UI → Queue shows DSNs
-   (550 = rejected by receiver, usually missing PTR or DNS typo).
+2. The provider console shows per-message events (delivered / bounced /
+   spam-complaints) — the fastest place to diagnose rejects.
+3. Optional one-shot scoring: send a test via the same relay to the address
+   shown at <https://www.mail-tester.com>; aim for ≥9/10.
 
 ## Development
 
