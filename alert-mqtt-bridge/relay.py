@@ -153,7 +153,7 @@ def publish_alerts(payload: dict) -> int:
             "name": a.get("labels", {}).get("alertname", "unknown"),
             "status": a.get("status", "firing"),
             "summary": a.get("annotations", {}).get("summary"),
-            "value": a.get("valueString"),
+            "value": compact_value(a.get("valueString", "")),
             "since": a.get("startsAt"),
         }
         for a in alerts
