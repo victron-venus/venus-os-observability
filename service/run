@@ -1,0 +1,16 @@
+#!/bin/sh
+# venus-os-observability agent (daemontools — no systemd on Venus OS).
+# Install: copy this dir to /data/opt/venus-os-observability/service and
+# symlink: ln -sf /data/opt/venus-os-observability/service /service/venus-os-observability
+# Lightweight mode: OTEL_EXPORTER_OTLP_ENDPOINT intentionally NOT set.
+# grpcio (~30-50MB RSS) is lazily imported only when tracing is enabled;
+# Prometheus metrics keep working. Restore the export line to re-enable
+# Tempo tracing (only on a box with RAM headroom):
+# export OTEL_EXPORTER_OTLP_ENDPOINT=http://<tempo-host>:4317
+exec 2>&1
+export DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
+export PROMETHEUS_PORT=9090
+export OTEL_SERVICE_NAME=venus-os-observability
+export LOG_LEVEL=INFO
+cd /data/opt/venus-os-observability || exit 1
+exec .venv2/bin/python -m venus_observability
