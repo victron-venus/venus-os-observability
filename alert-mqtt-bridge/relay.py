@@ -12,6 +12,7 @@ Endpoints:
 import json
 import logging
 import os
+import re
 import smtplib
 import threading
 import time
@@ -22,6 +23,10 @@ from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import paho.mqtt.client as mqtt
+
+# Grafana valueString eval dumps look like:
+# "[ var='A' labels={} type='query' value=0 ], [ var='B' ... value=1 ]"
+_VAR_PAIR_RE = re.compile(r"\[ var='([^']+)'[^\]]*?value=(\S+?)\s*\]")
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "192.168.160.150")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
@@ -75,7 +80,7 @@ def send_email(name: str, level: str, summary: str, value: str) -> None:
     msg["From"] = SMTP_FROM
     msg["To"] = ", ".join(SMTP_TO)
     msg["Subject"] = f"[Venus] {level.upper()}: {summary}"
-    msg.set_content(f"{summary}\n\n{value}\n")
+    msg.set_content((f"{summary}\n\n{value}" if value else summary) + "\n")
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
             s.starttls()
@@ -84,6 +89,14 @@ def send_email(name: str, level: str, summary: str, value: str) -> None:
         log.info("Email sent: %s", name)
     except (OSError, smtplib.SMTPException) as e:
         log.error("Email send failed for %s: %s", name, e)
+
+
+def compact_value(value: str) -> str:
+    """Shrink Grafana's verbose valueString to 'A=0 B=1'; pass through anything else."""
+    pairs = _VAR_PAIR_RE.findall(value or "")
+    if not pairs:
+        return (value or "").strip()
+    return " ".join(f"{var}={num}" for var, num in pairs)
 
 
 def send_telegram(name: str, level: str, summary: str, value: str) -> None:
@@ -112,7 +125,7 @@ def publish_alerts(payload: dict) -> int:
         name = labels.get("alertname", "unknown")
         status = alert.get("status", "firing")
         summary = alert.get("annotations", {}).get("summary") or name
-        value = alert.get("valueString", "")
+        value = compact_value(alert.get("valueString", ""))
         severity = labels.get("severity", "warning")
 
         if status == "resolved":
