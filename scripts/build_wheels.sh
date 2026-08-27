@@ -32,7 +32,7 @@ pip wheel -w "${OUT_DIR}" \
   click==8.1.7
 
 # Create tarball
-tar -czf "dist/${PKG_NAME}-wheels-${VERSION}.tar.gz" -C "${OUT_DIR}" .
+tar -czf "dist/${PKG_NAME}-wheels-${VERSION}.tar.gz" --exclude=build -C "${OUT_DIR}" .
 
 echo "Done: dist/${PKG_NAME}-wheels-${VERSION}.tar.gz"
 echo "Upload to GitHub Releases"
