@@ -42,81 +42,61 @@ services:
     restart: unless-stopped
 ```
 
-### Venus OS Native (Cerbo GX) - Offline Wheel Install
+### Venus OS Native (Cerbo GX) — SetupHelper PackageManager
 
-Venus OS has no `pip` by default. Use the offline wheel bundle:
+Install like `dbus-ev` / `dbus-evcharger`. Requires [SetupHelper](https://github.com/kwindrem/SetupHelper) on the GX.
+
+Package files needed at `/data/venus-os-observability`: `version`, `setup`, `gitHubInfo`, `update.sh`, `src/`, `services/`.
+
+```sh
+# Via PackageManager GUI (v1): add package venus-os-observability / victron-venus:latest
+# Or on the device:
+/data/venus-os-observability/setup install
+/data/venus-os-observability/setup uninstall
+```
+
+`gitHubInfo` is `victron-venus:latest`.
+
+`update.sh` (also called by `setup install`):
+
+- Installs into **`/data/venus-os-observability`** (SetupHelper convention).
+- Copies daemontools service to `INSTALL_DIR/service/venus-os-observability/` and symlinks `/service/venus-os-observability`.
+- Writes an idempotent **`/data/rc.local`** marker block so the symlink is recreated after reboot (`/service` is tmpfs). Venus OS does **not** run `/data/rc/S99*`.
+- Migrates `.venv2` from a legacy `/data/opt/venus-os-observability` install when present.
+- Removes the dead `/data/rc/S99venus-os-observability.sh` hook if found.
+
+Manual refresh from a checkout on the Mac:
+
+```sh
+# stream repo → device, run update.sh (same pattern as dbus-ev deploy.sh)
+COPYFILE_DISABLE=1 tar --no-xattrs \
+  --exclude='.git' --exclude='.venv' --exclude='__pycache__' \
+  --exclude='.pytest_cache' --exclude='.ruff_cache' --exclude='logs' \
+  --exclude='*.egg-info' --exclude='build' --exclude='dist' --exclude='wheels' \
+  -czf - -C /path/to/venus-os-observability . \
+| ssh root@cerbo 'set -e; rm -rf /data/.vos-obs-deploy; mkdir -p /data/.vos-obs-deploy; \
+    tar -xz -C /data/.vos-obs-deploy; sh /data/.vos-obs-deploy/update.sh; \
+    rm -rf /data/.vos-obs-deploy; svstat /service/venus-os-observability'
+```
+
+Runtime uses `.venv2/bin/python -m venus_observability` with `PYTHONPATH=…/src` so package updates apply without re-pip-installing into site-packages. Create the venv once on the device (offline wheels) if migrating a fresh box.
+
+> **Boot persistence:** `/service` on Venus OS is tmpfs. Symlinks must be
+> recreated from `/data/rc.local` after reboot (same pattern as
+> `dbus-ev` / `dbus-evcharger`). Scripts under `/data/rc/S99*` are **not**
+> executed by Venus OS — do not rely on them.
+
+### Offline wheel bootstrap (first-time venv only)
+
+Venus OS has no `pip` by default. On a new device, build/use the wheel bundle once to create `/data/venus-os-observability/.venv2`, then rely on PackageManager / `update.sh` afterwards.
 
 ```bash
-# On Cerbo GX (SSH as root)
-cd /tmp
-
-# 1. Download pre-built wheel bundle (ARMv7/aarch64 compatible)
-wget https://github.com/victron-venus/venus-os-observability/releases/download/v0.1.0/venus-os-observability-wheels.tar.gz
-
-# 2. Extract wheels
-tar -xzf venus-os-observability-wheels.tar.gz
-
-# 3. Install using Python's built-in wheel support (no pip needed)
-python3 -m pip install --no-index --find-links=. venus_os_observability-0.1.0-py3-none-any.whl
-
-# 4. Copy systemd service and config
-cp /usr/local/lib/python3.*/site-packages/venus_observability/systemd/venus-os-observability.service /etc/systemd/system/
-mkdir -p /etc/venus-os-observability
-cp config.example.yaml /etc/venus-os-observability/config.yaml
-
-# 5. Enable and start
-systemctl daemon-reload
-systemctl enable --now venus-os-observability
-```
-  pyyaml-*.whl \
-  structlog-*.whl \
-  click-*.whl
-
-# 5. Copy service file and config
-cp /usr/local/lib/python3.*/site-packages/venus_observability/systemd/venus-os-observability.service /etc/systemd/system/
-mkdir -p /etc/venus-os-observability
-cp config.example.yaml /etc/venus-os-observability/config.yaml
-
-# 6. Enable and start
-systemctl daemon-reload
-systemctl enable --now venus-os-observability
+# On Cerbo GX (SSH as root) — example
+cd /data/venus-os-observability
+python3 -m venv .venv2
+.venv2/bin/pip install --no-index --find-links=/path/to/wheels -e .
 ```
 
-#### If `python3 -m pip` fails (no pip module):
-
-```bash
-# Install pip first via opkg (if feed available)
-opkg update && opkg install python3-pip
-
-# OR manually bootstrap pip
-wget https://bootstrap.pypa.io/get-pip.py
-python3 get-pip.py --no-index --find-links=/tmp/wheels
-```
-
-### Build Wheel Bundle Locally (for release artifacts)
-
-```bash
-# On build machine (Linux ARM or cross-compile)
-pip install -e ".[dev]"
-pip wheel --no-deps --wheel-dir=./wheels .
-pip wheel --wheel-dir=./wheels \
-  opentelemetry-api opentelemetry-sdk opentelemetry-exporter-prometheus \
-  opentelemetry-exporter-otlp prometheus-client pyyaml structlog click
-
-# Create release tarball
-tar -czf venus-os-observability-wheels.tar.gz wheels/
-# Upload to GitHub Releases
-```
-
-## Configuration
-
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `DBUS_SYSTEM_BUS_ADDRESS` | `unix:path=/var/run/dbus/system_bus_socket` | D-Bus connection |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | Tempo/Grafana OTLP endpoint |
-| `PROMETHEUS_PORT` | `9090` | Prometheus metrics port |
-| `OTEL_SERVICE_NAME` | `venus-os-observability` | Service name for traces |
-| `LOG_LEVEL` | `INFO` | Logging level |
 
 ## Metrics Exported
 
@@ -130,12 +110,6 @@ tar -czf venus-os-observability-wheels.tar.gz wheels/
 | `victron_inverter_state` | Gauge | Inverter state machine (0=off,1=on,2=charging,3=inverting) |
 
 ## Alert Delivery Setup
-
-> **Boot persistence:** `/service` on Venus OS is tmpfs. Symlinks must be
-> recreated from `/data/rc.local` after reboot (same pattern as
-> `inverter-control` / `dbus-*`). Scripts under `/data/rc/S99*` are **not**
-> executed by Venus OS — do not rely on them.
-
 
 Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agent-down`,
 `venus-dbus-errors`, `venus-signals-stale`). Three delivery channels:

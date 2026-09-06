@@ -1,0 +1,30 @@
+#!/bin/sh
+# venus-os-observability agent (daemontools — no systemd on Venus OS).
+# Installed by update.sh to /data/venus-os-observability/service/venus-os-observability/.
+# Symlink into tmpfs /service (gone on reboot); boot persistence is the
+# /data/rc.local marker block (Venus does NOT run /data/rc/S99*).
+#
+# Lightweight mode: OTEL_EXPORTER_OTLP_ENDPOINT intentionally NOT set.
+# grpcio (~30-50MB RSS) is lazily imported only when tracing is enabled;
+# Prometheus metrics keep working. Restore the export line to re-enable
+# Tempo tracing (only on a box with RAM headroom):
+# export OTEL_EXPORTER_OTLP_ENDPOINT=http://<tempo-host>:4317
+exec 2>&1
+export DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket
+export PROMETHEUS_PORT=9090
+export OTEL_SERVICE_NAME=venus-os-observability
+export LOG_LEVEL=INFO
+
+INSTALL_DIR=/data/venus-os-observability
+cd "$INSTALL_DIR" || exit 1
+
+# Prefer device venv (deps). PYTHONPATH=src so package updates win over a
+# stale copy previously pip-installed into site-packages.
+export PYTHONPATH="$INSTALL_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+if [ -x "$INSTALL_DIR/.venv2/bin/python" ]; then
+  exec "$INSTALL_DIR/.venv2/bin/python" -m venus_observability
+fi
+if [ -x "$INSTALL_DIR/.venv/bin/python" ]; then
+  exec "$INSTALL_DIR/.venv/bin/python" -m venus_observability
+fi
+exec python3 -m venus_observability

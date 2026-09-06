@@ -1,0 +1,34 @@
+#!/bin/bash
+#
+# venus-os-observability SetupHelper package script (PackageManager / GUI v1).
+# Install logic lives in update.sh; this file is the SetupHelper entry point.
+#
+
+#### following line incorporates SetupHelper resources into this script
+source "/data/SetupHelper/HelperResources/IncludeHelpers"
+#### end of lines to include helper resources
+
+if [ "$scriptAction" == 'NONE' ]; then
+    standardActionPrompt
+fi
+
+if [ "$scriptAction" == 'INSTALL' ]; then
+    logMessage "Installing $packageName"
+    sh "$scriptDir/update.sh" "$scriptDir"
+fi
+
+if [ "$scriptAction" == 'UNINSTALL' ]; then
+    logMessage "Uninstalling $packageName"
+    svc -dk "/service/venus-os-observability/log" "/service/venus-os-observability" 2>/dev/null || true
+    rm -rf "/service/venus-os-observability"
+    if [ -f /data/rc.local ]; then
+        sed -i '/# === venus-os-observability service persistence ===/,/# === end venus-os-observability ===/d' /data/rc.local 2>/dev/null || true
+    fi
+    # Dead Venus hook (never executed); remove if present.
+    rm -f /data/rc/S99venus-os-observability.sh 2>/dev/null || true
+    # Keep device venv / src tree; PackageManager removes the package dir.
+fi
+
+# Services are installed by update.sh (symlink into /data/.../service),
+# not by SetupHelper's INSTALL_SERVICE copier.
+endScript
