@@ -19,7 +19,7 @@ LEGACY_OPT="/data/opt/venus-os-observability"
 SVC_NAME="venus-os-observability"
 
 # Runtime items shipped at the repo root and installed at INSTALL_DIR root.
-RUNTIME_ITEMS="src version setup gitHubInfo pyproject.toml setup.py config.example.yaml"
+RUNTIME_ITEMS="src version setup update.sh gitHubInfo pyproject.toml setup.py config.example.yaml"
 
 sep() { echo "=== venus-os-observability update: $*"; }
 
