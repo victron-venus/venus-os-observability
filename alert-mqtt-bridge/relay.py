@@ -99,6 +99,17 @@ def compact_value(value: str) -> str:
     return " ".join(f"{var}={num}" for var, num in pairs)
 
 
+def human_alert_value(value: str) -> str:
+    """Drop opaque Grafana query-var dumps like 'A=0 B=1' for email/Telegram."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    parts = v.split()
+    if parts and all(re.fullmatch(r"[A-Za-z_]\w*=\S+", part) for part in parts):
+        return ""
+    return v
+
+
 def send_telegram(name: str, level: str, summary: str, value: str) -> None:
     """Forward one alert as Telegram messages via the Bot API. Best-effort."""
     icon = "🔴" if level == "critical" else ("🟡" if level == "warning" else "🟢")
@@ -141,10 +152,12 @@ def publish_alerts(payload: dict) -> int:
             NOTIFY_TOPIC,
             json.dumps({"id": f"grafana-{name}-{status}", "level": level, "message": message}),
         )
+        # Email/Telegram: omit opaque Grafana eval dumps (A=0 B=1); keep MQTT as-is.
+        human = human_alert_value(value)
         if SMTP_HOST and SMTP_TO:
-            send_email(name, level, summary, value)
+            send_email(name, level, summary, human)
         if TG_BOT_TOKEN and TG_CHAT_IDS:
-            send_telegram(name, level, summary, value)
+            send_telegram(name, level, summary, human)
         count += 1
 
     # Retained snapshot of current alert states for late subscribers.

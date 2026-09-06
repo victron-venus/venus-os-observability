@@ -1,7 +1,16 @@
 #!/bin/sh
 # venus-os-observability agent (daemontools — no systemd on Venus OS).
 # Install: copy this dir to /data/opt/venus-os-observability/service and
-# symlink: ln -sf /data/opt/venus-os-observability/service /service/venus-os-observability
+# symlink into tmpfs /service (gone on reboot):
+#   ln -sfn /data/opt/venus-os-observability/service /service/venus-os-observability
+# Boot persistence MUST go in /data/rc.local (Venus does NOT run /data/rc/S99*).
+# Example block:
+#   # === venus-os-observability service persistence ===
+#   rm -rf /service/venus-os-observability
+#   ln -sf /data/opt/venus-os-observability/service /service/venus-os-observability
+#   svc -u /service/venus-os-observability/log 2>/dev/null || true
+#   svc -u /service/venus-os-observability 2>/dev/null || true
+#   # === end venus-os-observability ===
 # Lightweight mode: OTEL_EXPORTER_OTLP_ENDPOINT intentionally NOT set.
 # grpcio (~30-50MB RSS) is lazily imported only when tracing is enabled;
 # Prometheus metrics keep working. Restore the export line to re-enable

@@ -131,6 +131,12 @@ tar -czf venus-os-observability-wheels.tar.gz wheels/
 
 ## Alert Delivery Setup
 
+> **Boot persistence:** `/service` on Venus OS is tmpfs. Symlinks must be
+> recreated from `/data/rc.local` after reboot (same pattern as
+> `inverter-control` / `dbus-*`). Scripts under `/data/rc/S99*` are **not**
+> executed by Venus OS — do not rely on them.
+
+
 Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agent-down`,
 `venus-dbus-errors`, `venus-signals-stale`). Three delivery channels:
 
