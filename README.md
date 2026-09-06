@@ -23,34 +23,26 @@ graph LR
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
 - **Cerbo GX Ready**: Runs as native service on Venus OS or in Docker (no pip required - offline wheel install)
 
-## Quick Start
+## Installation
 
-### Docker Compose (Recommended)
+### Option 1: SetupHelper / PackageManager (Recommended)
 
-```yaml
-services:
-  venus-observability:
-    image: ghcr.io/victron-venus/venus-os-observability:latest
-    environment:
-      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
-      - PROMETHEUS_PORT=9090
-    volumes:
-      - /run/dbus:/run/dbus
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
-```
+**Preferred install path on Cerbo GX / Venus OS** — same as `dbus-ev`, `dbus-evcharger`, and `inverter-control`. Requires [SetupHelper](https://github.com/kwindrem/SetupHelper) on the GX.
 
-### Venus OS Native (Cerbo GX) — SetupHelper PackageManager
-
-Install like `dbus-ev` / `dbus-evcharger`. Requires [SetupHelper](https://github.com/kwindrem/SetupHelper) on the GX.
+The easiest way to install is via SetupHelper PackageManager. The `setup` script is PackageManager-compatible and handles service creation, `/data/rc.local` boot persistence, and restarts.
 
 Package files needed at `/data/venus-os-observability`: `version`, `setup`, `gitHubInfo`, `update.sh`, `src/`, `services/`.
 
+1. **Add package via GUI** (GUI v1):
+   - Settings → PackageManager → Inactive packages → **new**
+   - Package name: `venus-os-observability`
+   - GitHub user: `victron-venus`
+   - Branch / tag: `latest` (matches `gitHubInfo`)
+   - Proceed → Download → Install
+
+2. **Or on the device**:
+
 ```sh
-# Via PackageManager GUI (v1): add package venus-os-observability / victron-venus:latest
-# Or on the device:
 /data/venus-os-observability/setup install
 /data/venus-os-observability/setup uninstall
 ```
@@ -86,7 +78,7 @@ Runtime uses `.venv2/bin/python -m venus_observability` with `PYTHONPATH=…/src
 > `dbus-ev` / `dbus-evcharger`). Scripts under `/data/rc/S99*` are **not**
 > executed by Venus OS — do not rely on them.
 
-### Offline wheel bootstrap (first-time venv only)
+#### Offline wheel bootstrap (first-time venv only)
 
 Venus OS has no `pip` by default. On a new device, build/use the wheel bundle once to create `/data/venus-os-observability/.venv2`, then rely on PackageManager / `update.sh` afterwards.
 
@@ -97,6 +89,24 @@ python3 -m venv .venv2
 .venv2/bin/pip install --no-index --find-links=/path/to/wheels -e .
 ```
 
+### Option 2: Docker Compose
+
+For non-GX hosts or a containerized stack (not the preferred Cerbo path):
+
+```yaml
+services:
+  venus-observability:
+    image: ghcr.io/victron-venus/venus-os-observability:latest
+    environment:
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - PROMETHEUS_PORT=9090
+    volumes:
+      - /run/dbus:/run/dbus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+```
 
 ## Metrics Exported
 
