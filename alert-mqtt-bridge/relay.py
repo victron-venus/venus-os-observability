@@ -22,6 +22,7 @@ import urllib.request
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 import paho.mqtt.client as mqtt
 
@@ -58,7 +59,7 @@ client.reconnect_delay_set(1, 60)
 _connect_event = threading.Event()
 
 
-def _on_connect(_c, _u, _f, rc, *_props):
+def _on_connect(_c: Any, _u: Any, _f: Any, rc: int, *_props: Any) -> None:
     if rc == 0:
         log.info("Connected to MQTT %s:%s", MQTT_HOST, MQTT_PORT)
         _connect_event.set()
@@ -66,7 +67,7 @@ def _on_connect(_c, _u, _f, rc, *_props):
         log.warning("MQTT connect failed rc=%s", rc)
 
 
-def _on_disconnect(_c, _u, rc):
+def _on_disconnect(_c: Any, _u: Any, rc: int) -> None:
     _connect_event.clear()
     log.warning("MQTT disconnected rc=%s (auto-reconnect)", rc)
 
@@ -128,7 +129,9 @@ def send_telegram(name: str, level: str, summary: str, value: str) -> None:
             log.error("Telegram send failed for %s -> %s: %s", name, chat_id, e)
 
 
-def _banner_fields(status: str, severity: str, summary: str, human: str) -> tuple:
+def _banner_fields(
+    status: str, severity: str, summary: str, human: str
+) -> tuple[str, str, str, str]:
     """Map Grafana alert to email/TG level + desktop MQTT banner fields."""
     if status == "resolved":
         return "info", "info", summary, "Grafana RESOLVED"
@@ -137,7 +140,7 @@ def _banner_fields(status: str, severity: str, summary: str, human: str) -> tupl
     return channel_level, mqtt_level, summary, human
 
 
-def _publish_one_alert(alert: dict) -> None:
+def _publish_one_alert(alert: dict[str, Any]) -> None:
     """Publish one Grafana alert to MQTT (+ optional email/Telegram)."""
     labels = alert.get("labels", {})
     name = labels.get("alertname", "unknown")
@@ -169,7 +172,7 @@ def _publish_one_alert(alert: dict) -> None:
         send_telegram(name, channel_level, summary, human)
 
 
-def publish_alerts(payload: dict) -> int:
+def publish_alerts(payload: dict[str, Any]) -> int:
     """Map a Grafana webhook payload to MQTT notifications. Returns count."""
     alerts = payload.get("alerts") or []
     for alert in alerts:
@@ -195,7 +198,7 @@ def publish_alerts(payload: dict) -> int:
 class Handler(BaseHTTPRequestHandler):
     """HTTP endpoints for Grafana webhooks and liveness checks."""
 
-    def do_POST(self):  # pylint: disable=invalid-name  # noqa: N802
+    def do_POST(self) -> None:  # pylint: disable=invalid-name  # noqa: N802
         """Accept a Grafana webhook payload on /grafana."""
         if self.path != "/grafana":
             self.send_error(404)
@@ -211,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(400)
         self.end_headers()
 
-    def do_GET(self):  # pylint: disable=invalid-name  # noqa: N802
+    def do_GET(self) -> None:  # pylint: disable=invalid-name  # noqa: N802
         """Liveness endpoint on /health."""
         if self.path != "/health":
             self.send_error(404)
@@ -223,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, fmt, *args):  # pylint: disable=arguments-differ
+    def log_message(self, fmt: str, *args: object) -> None:  # pylint: disable=arguments-differ
         """Silence per-request access logs; app logs cover it."""
 
 
