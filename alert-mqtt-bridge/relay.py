@@ -19,6 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -127,38 +128,52 @@ def send_telegram(name: str, level: str, summary: str, value: str) -> None:
             log.error("Telegram send failed for %s -> %s: %s", name, chat_id, e)
 
 
+def _banner_fields(status: str, severity: str, summary: str, human: str) -> tuple:
+    """Map Grafana alert to email/TG level + desktop MQTT banner fields."""
+    if status == "resolved":
+        return "info", "info", summary, "Grafana RESOLVED"
+    channel_level = "critical" if severity == "critical" else "warning"
+    mqtt_level = "alarm" if severity == "critical" else "warning"
+    return channel_level, mqtt_level, summary, human
+
+
+def _publish_one_alert(alert: dict) -> None:
+    """Publish one Grafana alert to MQTT (+ optional email/Telegram)."""
+    labels = alert.get("labels", {})
+    name = labels.get("alertname", "unknown")
+    status = alert.get("status", "firing")
+    summary = alert.get("annotations", {}).get("summary") or name
+    human = human_alert_value(compact_value(alert.get("valueString", "")))
+    severity = labels.get("severity", "warning")
+    channel_level, mqtt_level, title, body = _banner_fields(status, severity, summary, human)
+
+    # ponytail: fire-and-forget publish; alerts missed while broker is down
+    # are acceptable because rules keep firing state visible in Grafana UI.
+    # Payload matches inverter-control / inverter-desktop banner schema.
+    client.publish(
+        NOTIFY_TOPIC,
+        json.dumps(
+            {
+                "id": f"grafana-{name}-{status}",
+                "level": mqtt_level,
+                "title": title,
+                "body": body,
+                "source": "grafana",
+                "ts": datetime.now(UTC).isoformat(),
+            }
+        ),
+    )
+    if SMTP_HOST and SMTP_TO:
+        send_email(name, channel_level, summary, human)
+    if TG_BOT_TOKEN and TG_CHAT_IDS:
+        send_telegram(name, channel_level, summary, human)
+
+
 def publish_alerts(payload: dict) -> int:
     """Map a Grafana webhook payload to MQTT notifications. Returns count."""
     alerts = payload.get("alerts") or []
-    count = 0
     for alert in alerts:
-        labels = alert.get("labels", {})
-        name = labels.get("alertname", "unknown")
-        status = alert.get("status", "firing")
-        summary = alert.get("annotations", {}).get("summary") or name
-        value = compact_value(alert.get("valueString", ""))
-        severity = labels.get("severity", "warning")
-
-        if status == "resolved":
-            level = "info"
-            message = f"Grafana RESOLVED: {summary}"
-        else:
-            level = "critical" if severity == "critical" else "warning"
-            message = f"Grafana: {summary}" + (f" [{value}]" if value else "")
-
-        # ponytail: fire-and-forget publish; alerts missed while broker is down
-        # are acceptable because rules keep firing state visible in Grafana UI.
-        client.publish(
-            NOTIFY_TOPIC,
-            json.dumps({"id": f"grafana-{name}-{status}", "level": level, "message": message}),
-        )
-        # Email/Telegram: omit opaque Grafana eval dumps (A=0 B=1); keep MQTT as-is.
-        human = human_alert_value(value)
-        if SMTP_HOST and SMTP_TO:
-            send_email(name, level, summary, human)
-        if TG_BOT_TOKEN and TG_CHAT_IDS:
-            send_telegram(name, level, summary, human)
-        count += 1
+        _publish_one_alert(alert)
 
     # Retained snapshot of current alert states for late subscribers.
     snapshot = [
@@ -174,7 +189,7 @@ def publish_alerts(payload: dict) -> int:
     client.publish(
         STATE_TOPIC, json.dumps({"updated": time.time(), "alerts": snapshot}), retain=True
     )
-    return count
+    return len(alerts)
 
 
 class Handler(BaseHTTPRequestHandler):
