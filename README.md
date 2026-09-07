@@ -220,9 +220,12 @@ accepts an Email contact point but delivers silently to nowhere — no SMTP
 attempt logged, no provider-side events. So email fan-out lives in the
 **bridge**, which already receives every webhook reliably:
 
-```
-Grafana rule fires ──webhook──▶ alert-mqtt-bridge ──▶ inverter/notifications (banners)
-                                              └─────▶ Brevo SMTP :587 ──▶ mailbox
+```mermaid
+flowchart LR
+    G[Grafana rule fires] -->|webhook| B[alert-mqtt-bridge]
+    B -->|MQTT| N["inverter/notifications<br/>desktop banners"]
+    B -->|SMTP :587| M[Brevo → mailbox]
+    B -->|Bot API| T[Telegram]
 ```
 
 #### 3.1 Provider setup (Brevo, one-time)
