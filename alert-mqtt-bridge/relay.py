@@ -12,7 +12,6 @@ Endpoints:
 import json
 import logging
 import os
-import re
 import smtplib
 import threading
 import time
@@ -25,10 +24,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import paho.mqtt.client as mqtt
-
-# Grafana valueString eval dumps look like:
-# "[ var='A' labels={} type='query' value=0 ], [ var='B' ... value=1 ]"
-_VAR_PAIR_RE = re.compile(r"\[ var='([^']+)'[^\]]*?value=(\S+?)\s*\]")
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "192.168.160.150")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
@@ -94,11 +89,51 @@ def send_email(name: str, level: str, summary: str, value: str) -> None:
 
 
 def compact_value(value: str) -> str:
-    """Shrink Grafana's verbose valueString to 'A=0 B=1'; pass through anything else."""
-    pairs = _VAR_PAIR_RE.findall(value or "")
+    """Shrink Grafana's verbose valueString to 'A=0 B=1'; pass through anything else.
+
+    Uses linear string scans (no backtracking regex) so pathological webhook
+    payloads cannot trigger ReDoS. Input is capped for defense in depth.
+    """
+    raw = value or ""
+    if len(raw) > 8192:
+        raw = raw[:8192]
+    pairs: list[tuple[str, str]] = []
+    pos = 0
+    while True:
+        i = raw.find("var='", pos)
+        if i < 0:
+            break
+        j = raw.find("'", i + 5)
+        if j < 0:
+            break
+        var = raw[i + 5 : j]
+        k = raw.find("value=", j)
+        if k < 0:
+            break
+        start = k + 6
+        end = start
+        while end < len(raw) and raw[end] not in " \t\n\r]":
+            end += 1
+        num = raw[start:end]
+        if var and num:
+            pairs.append((var, num))
+        pos = end if end > pos else j + 1
     if not pairs:
-        return (value or "").strip()
+        return raw.strip()
     return " ".join(f"{var}={num}" for var, num in pairs)
+
+
+def _is_var_eq_token(part: str) -> bool:
+    """True for compact tokens like A=0 (no regex — CodeQL-safe)."""
+    eq = part.find("=")
+    if eq <= 0 or eq == len(part) - 1:
+        return False
+    key, val = part[:eq], part[eq + 1 :]
+    if not (key[0].isalpha() or key[0] == "_"):
+        return False
+    if not all(c.isalnum() or c == "_" for c in key):
+        return False
+    return bool(val) and not any(c.isspace() for c in val)
 
 
 def human_alert_value(value: str) -> str:
@@ -107,7 +142,7 @@ def human_alert_value(value: str) -> str:
     if not v:
         return ""
     parts = v.split()
-    if parts and all(re.fullmatch(r"[A-Za-z_]\w*=\S+", part) for part in parts):
+    if parts and all(_is_var_eq_token(part) for part in parts):
         return ""
     return v
 
