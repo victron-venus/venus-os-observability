@@ -14,7 +14,7 @@ fi
 
 if [ "$scriptAction" == 'INSTALL' ]; then
     logMessage "Installing $packageName"
-    sh "$scriptDir/update.sh" "$scriptDir"
+    sh "$scriptDir/update.sh" "$scriptDir" || exit $?
 fi
 
 if [ "$scriptAction" == 'UNINSTALL' ]; then

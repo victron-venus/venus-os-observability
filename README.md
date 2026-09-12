@@ -27,7 +27,13 @@ graph LR
 - **Prometheus Metrics**: Export inverter state (SOC, power, grid, battery) as Prometheus metrics
 - **Distributed Tracing**: Correlation IDs propagated across MQTT → D-Bus → inverter-control
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
-- **Cerbo GX Ready**: Runs as native service on Venus OS or in Docker (no pip required - offline wheel install)
+- **Native Venus OS Service**: Supports native supervision; offline pip installation requires wheels matching the target Python version and architecture
+
+Explicitly unavailable numeric D-Bus values, including Venus empty arrays, are
+exported as `NaN` in both metric backends. They replace the previous reading and
+do not discard other items in the same signal. A later valid zero is retained as
+zero. Text-only updates do not replace numeric measurements. This handles value
+invalidation; it does not independently detect every silent source outage.
 
 ## Installation
 
@@ -77,23 +83,74 @@ COPYFILE_DISABLE=1 tar --no-xattrs \
     rm -rf /data/.vos-obs-deploy; svstat /service/venus-os-observability'
 ```
 
-Runtime uses `.venv2/bin/python -m venus_observability` with `PYTHONPATH=…/src` so package updates apply without re-pip-installing into site-packages. Create the venv once on the device (offline wheels) if migrating a fresh box.
+Runtime prefers `.venv2/bin/python`, then `.venv/bin/python`, with
+`PYTHONPATH=/data/venus-os-observability/src` so source updates take effect.
+Installation checks imports before stopping the service, preserves supervisor
+directories, and never kills processes merely because their working directory
+is the package directory. Only `/data/venus-os-observability` is supported.
 
-> **Boot persistence:** `/service` on Venus OS is tmpfs. Symlinks must be
-> recreated from `/data/rc.local` after reboot (same pattern as
-> `dbus-ev` / `dbus-evcharger`). Scripts under `/data/rc/S99*` are **not**
-> executed by Venus OS — do not rely on them.
+The boot hook is inserted before a conventional `exit 0` in `/data/rc.local`.
+`/service` is volatile; `/data/rc/S99*` is not a supported boot hook.
+Logs use `multilog t s25000 n4` under `/var/log`, approximately 125 KB including
+the current file, rather than an unbounded file on persistent flash.
 
-#### Offline wheel bootstrap (first-time venv only)
+#### Offline wheel bootstrap (first installation)
 
-Venus OS has no `pip` by default. On a new device, build/use the wheel bundle once to create `/data/venus-os-observability/.venv2`, then rely on PackageManager / `update.sh` afterwards.
+Check `python3 --version` and `uname -m` on the target first. The audited Cerbo
+uses Python 3.12 and ARMv7; Raspberry Pi images may differ. Build the wheel bundle
+with `scripts/build_wheels.sh` on a matching Linux architecture/Python ABI.
+It resolves versions from `pyproject.toml`, requires binary dependency wheels,
+and includes a pip wheel. It is not an ARM cross-compiler. If a native wheel is
+unavailable, build it in a matching build environment before deployment.
 
-```bash
-# On Cerbo GX (SSH as root) — example
+Venus OS provides `dbus-python` and GLib. Preserve access to these native bindings
+using `--system-site-packages`; `dbus-next` cannot replace them for this agent.
+Do not install replacement bindings over the firmware's Python packages.
+
+Copy and extract the bundle under `/data/venus-os-observability/wheels`, then:
+
+```sh
 cd /data/venus-os-observability
-python3 -m venv .venv2
-.venv2/bin/pip install --no-index --find-links=/path/to/wheels -e .
+python3 -m venv --system-site-packages --without-pip .venv2
+# pip can run directly from its wheel, even when ensurepip is absent.
+for wheel in wheels/pip-*.whl; do
+    PYTHONPATH="$wheel" .venv2/bin/python -m pip install \
+        --no-index --find-links=wheels venus-os-observability
+done
+sh update.sh
+svstat /service/venus-os-observability /service/venus-os-observability/log
+tail -n 60 /var/log/venus-os-observability/current
+wget -qO - http://127.0.0.1:9090/metrics
 ```
+
+If the image lacks `venv` itself, prepare a compatible offline virtualenv
+bootstrap first; the installer does not silently fetch packages from the
+internet. Repeat the bootstrap after firmware changes the Python ABI.
+
+Tracing is optional: install the `tempo` extra from a matching offline bundle
+and configure `OTEL_EXPORTER_OTLP_ENDPOINT` only when the device has headroom.
+Without it, the sampler drops spans and avoids D-Bus payload serialization;
+metrics remain active. D-Bus string subclasses are converted to native strings
+before recorded span attributes are validated.
+
+The historical IPK Makefile was an OpenWrt/systemd recipe, not a working Venus
+OS package. It now fails with an explicit migration message. The `systemd/`
+example is for separate Linux hosts only; native GX deployment uses SetupHelper.
+
+Release candidates provide `venus-os-observability-VERSION.tar.gz` and
+`SHA256SUMS`. This archive contains the native installer, all runtime modules,
+service scripts, example configuration and Python package metadata. CI validates
+its contents, executable modes and matching package versions before publication.
+Extract its single top-level directory into a staging directory and run its
+`update.sh` to update the standard `/data/venus-os-observability` installation.
+Device configuration, virtual environments and live supervisor directories are
+preserved. Dependency wheels are a separate prerequisite; neither this source
+archive nor the Python wheel is an IPK package.
+
+Wheel and source distributions accompany the verified GitHub release assets.
+PyPI publication requires a separate explicit promotion of those same verified
+distributions, as described in [RELEASING.md](RELEASING.md). A GitHub release alone
+does not imply that the same version is available from PyPI.
 
 ### Option 2: Docker Compose
 
@@ -104,7 +161,7 @@ services:
   venus-observability:
     image: ghcr.io/victron-venus/venus-os-observability:latest
     environment:
-      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
       - PROMETHEUS_PORT=9090
     volumes:

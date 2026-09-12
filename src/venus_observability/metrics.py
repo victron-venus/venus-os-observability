@@ -4,10 +4,21 @@ Prometheus metrics for Victron Venus OS observability.
 Exports inverter state metrics: SOC, power, grid, battery, loads.
 """
 
+import math
 from typing import Any
 
 from opentelemetry.metrics import Meter
 from prometheus_client import Counter, Gauge, Histogram
+
+
+def _numeric_or_nan(value: Any) -> float:
+    """Invalidate unavailable D-Bus values instead of retaining a stale gauge."""
+    try:
+        number = float(value)
+    except (ValueError, TypeError, OverflowError):
+        return math.nan
+    return number if math.isfinite(number) else math.nan
+
 
 # Prometheus metrics (for /metrics endpoint)
 battery_soc = Gauge(
@@ -215,12 +226,8 @@ class VictronMetrics:
         return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith("/power")
 
     def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any]) -> None:
-        """Safely set gauge value."""
-        try:
-            num_value = float(value)
-            gauge.set(num_value, attributes)
-        except (ValueError, TypeError):
-            pass
+        """Publish unavailable values as NaN, including Venus empty arrays."""
+        gauge.set(_numeric_or_nan(value), attributes)
 
     def _extract_serial(self, service: str) -> str:
         """Extract device serial from service name."""
@@ -254,35 +261,35 @@ def update_prometheus_from_dbus(
     path_lower = path.lower()
 
     if path_lower == "/soc":
-        battery_soc.labels(serial=serial).set(float(value))
+        battery_soc.labels(serial=serial).set(_numeric_or_nan(value))
     elif path_lower == "/dc/0/power":
-        battery_power.labels(serial=serial).set(float(value))
+        battery_power.labels(serial=serial).set(_numeric_or_nan(value))
     elif path_lower in ("/dc/pv/power", "/yield/power") or (
         path_lower == "/ac/power" and ".pvinverter." in service
     ):
         # system aggregates PV as /Dc/Pv/Power; solarcharger emits /Yield/Power;
         # dbus-pvinverter services (dbus-tasmota-pv) report PV as /Ac/Power
-        pv_power.labels(serial=serial).set(float(value))
+        pv_power.labels(serial=serial).set(_numeric_or_nan(value))
     elif path_lower == "/ac/grid/power" or _is_phase_power(path_lower, "grid"):
         # Venus OS emits per-phase paths (/Ac/Grid/L1/Power); aggregate has no phase
-        grid_power.labels(serial=serial, phase=_phase_from_path(path)).set(float(value))
+        grid_power.labels(serial=serial, phase=_phase_from_path(path)).set(_numeric_or_nan(value))
     elif (
         path_lower in ("/ac/loads/power",)
         or _is_phase_power(path_lower, "loads")
         or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
     ):
         # Per-phase consumption (/Ac/Consumption/L1/Power) or legacy /Ac/Loads/*
-        ac_loads.labels(serial=serial, phase=_phase_from_path(path)).set(float(value))
+        ac_loads.labels(serial=serial, phase=_phase_from_path(path)).set(_numeric_or_nan(value))
     elif path_lower == "/state":
-        inverter_state.labels(serial=serial).set(int(value))
+        inverter_state.labels(serial=serial).set(_numeric_or_nan(value))
     elif path_lower.startswith("/dc/0/voltages/cell"):
         cell = path_lower.replace("/dc/0/voltages/cell", "")
         if cell.isdigit():
-            cell_voltages.labels(serial=serial, cell=cell).set(float(value))
+            cell_voltages.labels(serial=serial, cell=cell).set(_numeric_or_nan(value))
     elif path_lower.startswith("/temperatures/cell"):
         cell = path_lower.replace("/temperatures/cell", "")
         if cell.isdigit():
-            cell_temperature.labels(serial=serial, cell=cell).set(float(value))
+            cell_temperature.labels(serial=serial, cell=cell).set(_numeric_or_nan(value))
 
     # Track signal
     dbus_signals_received.labels(
