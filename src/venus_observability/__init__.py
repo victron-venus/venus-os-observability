@@ -17,7 +17,7 @@ if TYPE_CHECKING:
         setup_telemetry,
     )
 
-__version__ = "0.1.0"
+__version__ = "0.1.4"
 __author__ = "Victron Venus Team"
 __license__ = "MIT"
 

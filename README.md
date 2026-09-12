@@ -131,6 +131,16 @@ The historical IPK Makefile was an OpenWrt/systemd recipe, not a working Venus
 OS package. It now fails with an explicit migration message. The `systemd/`
 example is for separate Linux hosts only; native GX deployment uses SetupHelper.
 
+Releases provide `venus-os-observability-VERSION-setuphelper.tar.gz` and
+`SHA256SUMS`. This archive contains the native installer, all runtime modules,
+service scripts, example configuration and Python package metadata. CI validates
+its contents, executable modes and matching package versions before publication.
+Extract its single top-level directory into a staging directory and run its
+`update.sh` to update the standard `/data/venus-os-observability` installation.
+Device configuration, virtual environments and live supervisor directories are
+preserved. Dependency wheels are a separate prerequisite; neither this source
+archive nor the Python wheel is an IPK package.
+
 ### Option 2: Docker Compose
 
 For non-GX hosts or a containerized stack (not the preferred Cerbo path):
