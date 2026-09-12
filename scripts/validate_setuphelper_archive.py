@@ -21,6 +21,7 @@ REQUIRED = {
     "src/venus_observability/__init__.py",
     "src/venus_observability/__main__.py",
     "src/venus_observability/dbus_listener.py",
+    "src/venus_observability/dbus_owners.py",
     "src/venus_observability/metrics.py",
     "src/venus_observability/correlation.py",
     "src/venus_observability/py.typed",

@@ -23,7 +23,8 @@ from .correlation import (
     extract_correlation_id_from_headers,
     get_correlation_id,
 )
-from .metrics import VictronMetrics, update_prometheus_from_dbus
+from .dbus_owners import ServiceOwnerTracker
+from .metrics import VictronMetrics, invalidate_prometheus_service, update_prometheus_from_dbus
 
 # Initialize D-Bus main loop
 DBusGMainLoop(set_as_default=True)
@@ -49,9 +50,18 @@ class DBusSignalListener:
         self._loop_thread: threading.Thread | None = None
         self._subscriptions: set[tuple[str, str]] = set()
         self._match_rules: list[str] = []
-        # Victron services emit from unique names (:1.x); map them to well-known names
-        self._owner_cache: dict[str, str] = {}
-        self._owner_cache_ts: float = 0.0
+        self._filter_registered = False
+        self._owners = ServiceOwnerTracker(self.bus, self._process_values, self._invalidate_service)
+
+    def _invalidate_service(self, service: str) -> None:
+        self.metrics.invalidate_service(service)
+        invalidate_prometheus_service(service)
+
+    def _install_filter(self) -> None:
+        if not self._filter_registered:
+            self.bus.add_message_filter(self._message_filter)
+            self._filter_registered = True
+        self._owners.start()
 
     def subscribe_global(self) -> None:
         """Subscribe to all Victron BusItem ItemsChanged signals.
@@ -65,40 +75,11 @@ class DBusSignalListener:
                 "type='signal',interface='com.victronenergy.BusItem',member='ItemsChanged',path='/'"
             )
             self.bus.add_match_string(match_rule)
-            self.bus.add_message_filter(self._message_filter)
+            self._install_filter()
             self._match_rules.append(match_rule)
             self.logger.info("Subscribed to Victron ItemsChanged signals")
         except dbus.DBusException as e:
             self.logger.warning("Failed to subscribe to Victron signals: %s", e)
-
-    def _resolve_service_name(self, unique_name: str | None) -> str | None:
-        """Map a D-Bus unique name (:1.x) to its well-known Victron service name."""
-        if not unique_name:
-            return None
-        if not unique_name.startswith(":"):
-            return unique_name
-        cached = self._owner_cache.get(unique_name)
-        if cached:
-            return cached
-        # Refresh at most once per 60s on unknown senders
-        now = time.monotonic()
-        if now - self._owner_cache_ts > 60:
-            self._refresh_owner_cache()
-            self._owner_cache_ts = now
-            return self._owner_cache.get(unique_name)
-        return None
-
-    def _refresh_owner_cache(self) -> None:
-        """Build unique-name -> well-known-name cache for Victron services."""
-        try:
-            obj = self.bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-            iface = dbus.Interface(obj, "org.freedesktop.DBus")
-            for name in iface.ListNames():
-                if str(name).startswith("com.victronenergy."):
-                    owner = iface.GetNameOwner(name)
-                    self._owner_cache[str(owner)] = str(name)
-        except dbus.DBusException as e:
-            self.logger.warning("Owner cache refresh failed: %s", e)
 
     def subscribe(
         self,
@@ -120,7 +101,7 @@ class DBusSignalListener:
                 f"member='ItemsChanged'"
             )
             self.bus.add_match_string(match_rule)
-            self.bus.add_message_filter(self._message_filter)
+            self._install_filter()
             self._subscriptions.add(key)
             self._match_rules.append(match_rule)
             self.logger.debug("Subscribed to %s%s", service, path)
@@ -162,15 +143,21 @@ class DBusSignalListener:
             headers = self._extract_headers_from_message(message)
             correlation_id = extract_correlation_id_from_headers(headers)
 
-            service = self._resolve_service_name(raw_sender) or raw_sender or "unknown"
-
-            with self._trace_signal(service, "/", dict(changed), correlation_id) as span:
-                for key, value in changed.items():
-                    full_path = str(key)
-                    self._handle_value(service, full_path, value, span)
+            self._owners.submit(raw_sender, dict(changed), correlation_id)
 
         except Exception as e:
             self.logger.error("Error processing D-Bus signal: %s", e)
+
+    def _process_values(
+        self, service: str, changed: dict[str, Any], correlation_id: str | None
+    ) -> None:
+        """Process immediate or replayed values under one stable service identity."""
+        try:
+            with self._trace_signal(service, "/", changed, correlation_id) as span:
+                for key, value in changed.items():
+                    self._handle_value(service, str(key), value, span)
+        except Exception as error:
+            self.logger.error("Error processing D-Bus signal: %s", error)
 
     @contextmanager
     def _trace_signal(
@@ -261,6 +248,7 @@ class DBusSignalListener:
     def stop(self) -> None:
         """Stop the D-Bus event loop."""
         self.logger.info("Stopping D-Bus event loop")
+        self._owners.stop()
         if self._main_loop and self._main_loop.is_running():
             self._main_loop.quit()
 
@@ -270,6 +258,9 @@ class DBusSignalListener:
                 self.bus.remove_match_string(rule)
         self._match_rules.clear()
         self._subscriptions.clear()
+        if self._filter_registered:
+            self.bus.remove_message_filter(self._message_filter)
+            self._filter_registered = False
 
 
 class VictronServiceDiscovery:

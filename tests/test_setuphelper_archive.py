@@ -20,7 +20,10 @@ def make_archive(path: Path, changed: str = "", mode: int = 0o755) -> None:
     """Build an archive from the actual release inputs, with one optional defect."""
     with tarfile.open(path, "w:gz") as archive:
         for name in sorted(VALIDATOR.REQUIRED):
-            if name == changed == "src/venus_observability/metrics.py":
+            if name == changed and changed in {
+                "src/venus_observability/metrics.py",
+                "src/venus_observability/dbus_owners.py",
+            }:
                 continue
             data = (REPO / name).read_bytes()
             member = tarfile.TarInfo(f"{VALIDATOR.PREFIX}/{name}")
@@ -46,6 +49,7 @@ def test_complete_archive(tmp_path: Path) -> None:
     "changed,mode,error",
     [
         ("src/venus_observability/metrics.py", 0o755, "Missing runtime files"),
+        ("src/venus_observability/dbus_owners.py", 0o755, "Missing runtime files"),
         ("", 0o644, "Missing executable mode"),
         ("version", 0o755, "versions differ"),
         ("../private", 0o755, "Unsafe archive path"),
