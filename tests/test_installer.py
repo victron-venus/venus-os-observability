@@ -7,7 +7,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 
-def test_in_place_update_preserves_supervisors_and_can_run_twice(tmp_path):
+def test_in_place_update_preserves_supervisors_and_can_run_twice(tmp_path: Path) -> None:
     """Installing from cwd must preserve runtime inodes and boot ordering."""
     data = tmp_path / "data"
     services = tmp_path / "service"

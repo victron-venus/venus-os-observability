@@ -61,7 +61,7 @@ def setup_telemetry(
 
     # Tracing
     tracer_provider = TracerProvider(
-        resource=resource, **({} if otlp_endpoint else {"sampler": ALWAYS_OFF})
+        resource=resource, sampler=None if otlp_endpoint else ALWAYS_OFF
     )
     trace.set_tracer_provider(tracer_provider)
 
