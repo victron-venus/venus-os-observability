@@ -24,7 +24,19 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+      - name: Check optional PyPI publisher
+        id: pypi
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -n "$PYPI_API_TOKEN" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'PyPI publication skipped: PYPI_API_TOKEN is not configured. Wheel and source distribution remain available in the GitHub release.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Publish to PyPI
+        if: steps.pypi.outputs.enabled == 'true'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
