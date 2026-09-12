@@ -262,7 +262,7 @@ def main() -> None:
 
     def signal_handler(signum: int, frame: FrameType | None) -> None:
         logger.info("Received signal %s, shutting down", signum)
-        service.stop()
+        # The lifespan context owns cleanup, including signal-triggered exits.
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, signal_handler)
