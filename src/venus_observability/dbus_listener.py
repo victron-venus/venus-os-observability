@@ -218,7 +218,9 @@ class DBusSignalListener:
         # Victron ItemsChanged values arrive as {Value: x, Text: "..."}
         raw = value
         if isinstance(raw, dict):
-            raw = raw.get("Value", raw.get("Text"))
+            if "Value" not in raw:
+                return
+            raw = raw["Value"]
 
         # Update OpenTelemetry metrics
         self.metrics.update_from_dbus(service, path, raw)

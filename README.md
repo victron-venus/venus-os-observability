@@ -23,6 +23,12 @@ graph LR
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
 - **Cerbo GX Ready**: Runs as native service on Venus OS or in Docker (no pip required - offline wheel install)
 
+Explicitly unavailable numeric D-Bus values, including Venus empty arrays, are
+exported as `NaN` in both metric backends. They replace the previous reading and
+do not discard other items in the same signal. A later valid zero is retained as
+zero. Text-only updates do not replace numeric measurements. This handles value
+invalidation; it does not independently detect every silent source outage.
+
 ## Installation
 
 ### Option 1: SetupHelper / PackageManager (Recommended)
