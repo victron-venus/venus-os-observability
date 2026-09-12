@@ -12,6 +12,8 @@
   hook before `exit 0` in `/data/rc.local`.
 - Publish a validated SetupHelper source archive with SHA-256 checksums instead
   of invoking the unsupported historical IPK recipe.
+- Publish wheel and source distributions on GitHub even when optional PyPI
+  credentials are absent; report a skipped PyPI publication explicitly.
 
 The source archive uses existing firmware D-Bus/GLib bindings and an existing
 compatible Python environment. It does not bundle dependencies or provide a

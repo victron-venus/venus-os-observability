@@ -141,6 +141,11 @@ Device configuration, virtual environments and live supervisor directories are
 preserved. Dependency wheels are a separate prerequisite; neither this source
 archive nor the Python wheel is an IPK package.
 
+Wheel and source distributions are published as GitHub release assets. The
+optional PyPI step runs only when `PYPI_API_TOKEN` is configured; otherwise the
+release workflow records the skipped publication in its summary. A GitHub
+release alone does not imply that the same version is available from PyPI.
+
 ### Option 2: Docker Compose
 
 For non-GX hosts or a containerized stack (not the preferred Cerbo path):
