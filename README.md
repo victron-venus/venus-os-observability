@@ -21,7 +21,7 @@ graph LR
 - **Prometheus Metrics**: Export inverter state (SOC, power, grid, battery) as Prometheus metrics
 - **Distributed Tracing**: Correlation IDs propagated across MQTT → D-Bus → inverter-control
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
-- **Cerbo GX Ready**: Runs as native service on Venus OS or in Docker (no pip required - offline wheel install)
+- **Native Venus OS Service**: Supports native supervision; offline pip installation requires wheels matching the target Python version and architecture
 
 Explicitly unavailable numeric D-Bus values, including Venus empty arrays, are
 exported as `NaN` in both metric backends. They replace the previous reading and
