@@ -1,18 +1,11 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '**.json'
   pull_request:
     branches: ['**']
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '**.json'
 
 permissions:
   contents: read

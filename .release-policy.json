@@ -1,0 +1,32 @@
+{
+  "validation_workflows": [
+    "ci.yml",
+    "lint.yml",
+    "test.yml",
+    "docker.yml",
+    "release-security.yml",
+    "codeql.yml"
+  ],
+  "artifact_pattern": "release-assets*",
+  "local_checks": [
+    "bash scripts/ci.sh",
+    "bash scripts/ci.sh security"
+  ],
+  "notes": [
+    "Hardware-free checks do not validate a live Venus OS device, D-Bus firmware ABI, physical sensors or in-place device upgrades.",
+    "Candidate packaging preserves committed runtime version metadata. Nightly/beta/RC identity is recorded by the release manifest.",
+    "OCI container assets are verified and promoted with the GitHub release. Registry and PyPI deployment must use a separately reviewed promotion adapter; CI does not update latest.",
+    "Legacy IPK publishing is retired; the supported Venus OS deliverable is the complete SetupHelper runtime archive."
+  ],
+  "version_file": "version",
+  "container_assets": {
+    "venus-os-observability-container.oci.tar": "ghcr.io/victron-venus/venus-os-observability"
+  },
+  "pypi_assets": [
+    "*.whl",
+    "venus_os_observability-*.tar.gz"
+  ],
+  "mode": "release",
+  "repository": "victron-venus/venus-os-observability",
+  "visibility": "public"
+}

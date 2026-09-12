@@ -2,10 +2,15 @@
 
 import importlib.util
 import io
+import json
+import shutil
+import subprocess
 import tarfile
 from pathlib import Path
 
 import pytest
+
+from scripts.package_release import build_package
 
 REPO = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -40,6 +45,27 @@ def test_complete_archive(tmp_path: Path) -> None:
     path = tmp_path / "source.tar.gz"
     make_archive(path)
     VALIDATOR.validate_archive(str(path))
+
+
+def test_candidate_adapter_preserves_the_native_contract(tmp_path: Path) -> None:
+    """Validate real candidate packaging against the native installer's file contract."""
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in VALIDATOR.REQUIRED:
+        destination = source / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO / name, destination)
+    (source / ".release-package.json").write_text(
+        json.dumps({"name": VALIDATOR.PREFIX, "include": sorted(VALIDATOR.REQUIRED)})
+    )
+    (source / ".release-policy.json").write_text(json.dumps({"version_file": "version"}))
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "add", "."], cwd=source, check=True)
+    (source / "local_config.py").write_text("DEVICE_LOCAL = True\n")
+    version = (source / "version").read_text().strip()
+    assets = build_package(source, version, "rc", tmp_path / "assets")
+    assert len(assets) == 1
+    VALIDATOR.validate_archive(str(assets[0]))
 
 
 @pytest.mark.parametrize(

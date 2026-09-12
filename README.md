@@ -2,6 +2,12 @@
 
 OpenTelemetry/Prometheus observability stack for Victron Venus OS — D-Bus event tracing, inverter metrics export, and distributed tracing across the MQTT → D-Bus → inverter-control pipeline.
 
+<!-- ci-release-process:start -->
+## Release process
+
+See the [release strategy](RELEASING.md) for validation, nightly, beta, RC and stable promotion rules, and the [operator runbook](docs/release-workflow.md) for local commands.
+<!-- ci-release-process:end -->
+
 ## Architecture
 
 ```mermaid
@@ -131,7 +137,7 @@ The historical IPK Makefile was an OpenWrt/systemd recipe, not a working Venus
 OS package. It now fails with an explicit migration message. The `systemd/`
 example is for separate Linux hosts only; native GX deployment uses SetupHelper.
 
-Releases provide `venus-os-observability-VERSION-setuphelper.tar.gz` and
+Release candidates provide `venus-os-observability-VERSION.tar.gz` and
 `SHA256SUMS`. This archive contains the native installer, all runtime modules,
 service scripts, example configuration and Python package metadata. CI validates
 its contents, executable modes and matching package versions before publication.
@@ -141,10 +147,10 @@ Device configuration, virtual environments and live supervisor directories are
 preserved. Dependency wheels are a separate prerequisite; neither this source
 archive nor the Python wheel is an IPK package.
 
-Wheel and source distributions are published as GitHub release assets. The
-optional PyPI step runs only when `PYPI_API_TOKEN` is configured; otherwise the
-release workflow records the skipped publication in its summary. A GitHub
-release alone does not imply that the same version is available from PyPI.
+Wheel and source distributions accompany the verified GitHub release assets.
+PyPI publication requires a separate explicit promotion of those same verified
+distributions, as described in [RELEASING.md](RELEASING.md). A GitHub release alone
+does not imply that the same version is available from PyPI.
 
 ### Option 2: Docker Compose
 

@@ -14,6 +14,7 @@ REQUIRED = {
     "update.sh",
     "gitHubInfo",
     "pyproject.toml",
+    "uv.lock",
     "setup.py",
     "config.example.yaml",
     "README.md",

@@ -1,0 +1,18 @@
+{
+  "name": "venus-os-observability",
+  "include": [
+    "src",
+    "setup",
+    "update.sh",
+    "services",
+    "gitHubInfo",
+    "version",
+    "pyproject.toml",
+    "setup.py",
+    "uv.lock",
+    "config.example.yaml",
+    "README.md",
+    "LICENSE"
+  ],
+  "wheel": true
+}
