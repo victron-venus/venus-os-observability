@@ -127,6 +127,24 @@ Without it, the sampler drops spans and avoids D-Bus payload serialization;
 metrics remain active. D-Bus string subclasses are converted to native strings
 before recorded span attributes are validated.
 
+Metric labels use stable Venus service names. The exporter subscribes to
+`NameOwnerChanged` before asynchronous startup discovery, removes superseded
+owners and invalidates that service's previously published gauges on loss or
+replacement. Fresh measurements restore those gauges; stable counters remain
+cumulative. A reconnect of the same well-known service does not create new
+per-process metric series. Adding genuinely new service names or item paths can
+still create new series; this is not a global registry quota.
+
+Signals received before their sender is resolved are replayed in arrival order
+once the Venus service is known. Unresolved input is limited to 256 batches and
+4,096 items, with a 10-second monotonic expiry. Overflow removes the oldest
+unresolved batches; an oversized single batch is discarded. The fixed-reason
+`victron_dbus_unresolved_signals_dropped_total` counter exposes overflow/expiry,
+and warnings are limited to one per minute. Known services bypass this queue.
+Owner discovery uses asynchronous calls with five-second deadlines; failed
+discovery can retry after five seconds, while other unknown-sender refreshes
+are limited to once per minute. It does not perform a blocking scan per signal.
+
 The historical IPK Makefile was an OpenWrt/systemd recipe, not a working Venus
 OS package. It now fails with an explicit migration message. The `systemd/`
 example is for separate Linux hosts only; native GX deployment uses SetupHelper.
