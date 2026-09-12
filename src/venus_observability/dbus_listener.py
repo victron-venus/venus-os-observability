@@ -188,7 +188,7 @@ class DBusSignalListener:
             attributes={
                 "dbus.service": service,
                 "dbus.path": path,
-                "dbus.changed_keys": list(data.keys()),
+                "dbus.changed_keys": [str(key) for key in data],
                 "correlation.id": corr_id or "",
             },
         ) as span:
@@ -212,12 +212,15 @@ class DBusSignalListener:
         start_time = time.perf_counter()
 
         # Add to span
-        span.set_attribute(f"dbus.value.{path}", str(value))
+        if span.is_recording():
+            span.set_attribute(f"dbus.value.{path}", str(value))
 
         # Victron ItemsChanged values arrive as {Value: x, Text: "..."}
         raw = value
         if isinstance(raw, dict):
-            raw = raw.get("Value", raw.get("Text"))
+            if "Value" not in raw:
+                return
+            raw = raw["Value"]
 
         # Update OpenTelemetry metrics
         self.metrics.update_from_dbus(service, path, raw)

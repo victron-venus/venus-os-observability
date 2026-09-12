@@ -7,6 +7,7 @@ Tests for main module (ObservabilityService, MQTT helpers, CLI).
 
 import sys
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -374,3 +375,40 @@ class TestSetupMqttCorrelation:
         setup_mqtt_correlation(mock_client)
 
         assert mock_client._correlation_publish is not None
+
+
+def test_package_import_does_not_preload_cli() -> None:
+    """A fresh python -m invocation must not find __main__ loaded by __init__."""
+    import subprocess
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, venus_observability; "
+            "assert 'venus_observability.__main__' not in sys.modules",
+        ],
+        check=True,
+    )
+
+
+def test_signal_shutdown_runs_cleanup_once() -> None:
+    """SIGTERM unwinds the lifespan instead of shutting every provider down twice."""
+    import signal
+
+    from venus_observability.__main__ import main
+
+    handlers: dict[int, Any] = {}
+    service = ObservabilityService()
+    with (
+        patch("venus_observability.__main__.ObservabilityService", return_value=service),
+        patch.object(service, "start"),
+        patch.object(service, "stop") as stop,
+        patch(
+            "signal.signal", side_effect=lambda signum, handler: handlers.update({signum: handler})
+        ),
+        patch("time.sleep", side_effect=lambda _: handlers[signal.SIGTERM](signal.SIGTERM, None)),
+        pytest.raises(SystemExit),
+    ):
+        main()
+    stop.assert_called_once()

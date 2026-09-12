@@ -19,34 +19,40 @@ LEGACY_OPT="/data/opt/venus-os-observability"
 SVC_NAME="venus-os-observability"
 
 # Runtime items shipped at the repo root and installed at INSTALL_DIR root.
-RUNTIME_ITEMS="src version setup update.sh gitHubInfo pyproject.toml setup.py config.example.yaml"
+RUNTIME_ITEMS="src services version setup update.sh gitHubInfo pyproject.toml setup.py config.example.yaml"
 
 sep() { echo "=== venus-os-observability update: $*"; }
 
-# 1. Stop the services BEFORE touching files.
-for svc in /service/$SVC_NAME/log /service/$SVC_NAME; do
-    [ -e "$svc" ] && svc -dk "$svc" 2>/dev/null || true
-done
-sleep 1
+# The service and boot hook use the standard persistent package path.
+if [ "$INSTALL_DIR" != /data/venus-os-observability ]; then
+    echo "Unsupported install directory: $INSTALL_DIR (expected /data/venus-os-observability)" >&2
+    exit 1
+fi
 
-# 1c. Reap stale daemontools supervise processes left behind by earlier
-#     updates (inode churn under $INSTALL_DIR/service). Also reap anything
-#     still running from the legacy /data/opt path during migration.
-#     rm -rf (not rm -f): a real directory at /service/$SVC_NAME would make
-#     ln -sf nest the link inside it.
-rm -rf "/service/$SVC_NAME"
-sleep 2
-for pid in /proc/[0-9]*; do
-    cwd=$(readlink "$pid/cwd" 2>/dev/null) || continue
-    case "$cwd" in
-        "$INSTALL_DIR/service/"*|"$INSTALL_DIR"|"$LEGACY_OPT/service/"*|"$LEGACY_OPT")
-            kill -9 "${pid##*/}" 2>/dev/null || true
-            ;;
-        *)
-            ;;
-    esac
+# Check dependencies before interrupting a healthy service. Native dbus-python
+# and GLib come from Venus OS; create venvs with --system-site-packages.
+PYTHON=python3
+for candidate in "$INSTALL_DIR/.venv2/bin/python" "$INSTALL_DIR/.venv/bin/python" \
+    "$LEGACY_OPT/.venv2/bin/python" "$LEGACY_OPT/.venv/bin/python"; do
+    if [ -x "$candidate" ]; then
+        PYTHON="$candidate"
+        break
+    fi
 done
-sleep 1
+PYTHONPATH="$SRC_DIR/src${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -c \
+    'import dbus; from gi.repository import GLib; import venus_observability.__main__' || {
+    echo "Runtime dependencies missing; bootstrap offline wheels before installing." >&2
+    exit 1
+}
+
+# Keep service directory inodes and supervisors stable across updates. Never
+# kill processes by working directory: that can kill this installer or an SSH
+# shell, and unrelated processes may share the package directory.
+if [ -e "/service/$SVC_NAME" ]; then
+    svc -d "/service/$SVC_NAME"
+    sleep 2
+    svc -k "/service/$SVC_NAME" 2>/dev/null || true
+fi
 
 mkdir -p "$INSTALL_DIR"
 sep "installing from $SRC_DIR into $INSTALL_DIR"
@@ -76,21 +82,31 @@ if [ ! -d "$INSTALL_DIR/.venv" ] && [ -d "$LEGACY_OPT/.venv" ]; then
     cp -a "$LEGACY_OPT/.venv" "$INSTALL_DIR/.venv"
 fi
 
-# 4. Install daemontools services: every dir under service/ and services/
-#    maps to INSTALL_DIR/service/. Drop leftover `down` files so a deploy
-#    always means "run the new version".
-mkdir -p "$INSTALL_DIR/service"
-for svc in "$SRC_DIR/service"/* "$SRC_DIR/services"/*; do
-    [ -d "$svc" ] || continue
-    name="$(basename "$svc")"
-    rm -rf "$INSTALL_DIR/service/$name"
-    cp -a "$svc" "$INSTALL_DIR/service/$name"
-    find "$INSTALL_DIR/service/$name" -type f -name run -exec chmod +x {} \; 2>/dev/null || true
-    find "$INSTALL_DIR/service/$name" -name down -exec rm -f {} \; 2>/dev/null || true
+# 4. Refresh only shipped run scripts; preserve live supervise/ directories.
+# Always use services/ (the immutable package source), not service/ (runtime).
+mkdir -p "$INSTALL_DIR/service/$SVC_NAME/log"
+for item in run log/run; do
+    cp "$SRC_DIR/services/$SVC_NAME/$item" "$INSTALL_DIR/service/$SVC_NAME/$item.new"
+    chmod +x "$INSTALL_DIR/service/$SVC_NAME/$item.new"
+    mv "$INSTALL_DIR/service/$SVC_NAME/$item.new" "$INSTALL_DIR/service/$SVC_NAME/$item"
 done
+rm -f "$INSTALL_DIR/service/$SVC_NAME/down" "$INSTALL_DIR/service/$SVC_NAME/log/down"
+mkdir -p "/var/log/$SVC_NAME"
 
-# 5. Refresh /service symlink (nested layout matching dbus-ev).
-ln -sf "$INSTALL_DIR/service/$SVC_NAME" /service/
+# Exit old supervisors when migrating a symlink from a different runtime tree.
+if [ -L "/service/$SVC_NAME" ] && \
+    [ "$(readlink "/service/$SVC_NAME")" != "$INSTALL_DIR/service/$SVC_NAME" ]; then
+    svc -dx "/service/$SVC_NAME" "/service/$SVC_NAME/log" 2>/dev/null || true
+    sleep 2
+fi
+
+# A legacy real directory cannot be replaced by ln -sf (it nests the link).
+if [ -d "/service/$SVC_NAME" ] && [ ! -L "/service/$SVC_NAME" ]; then
+    svc -dx "/service/$SVC_NAME" "/service/$SVC_NAME/log" 2>/dev/null || true
+    sleep 2
+    rm -rf "/service/$SVC_NAME"
+fi
+ln -snf "$INSTALL_DIR/service/$SVC_NAME" "/service/$SVC_NAME"
 
 # 6. Ensure boot persistence via /data/rc.local (NOT /data/rc/S99*).
 #    /service is tmpfs; rewrite marker block on every update.
@@ -100,19 +116,28 @@ if [ ! -f "$RC_LOCAL" ]; then
     chmod +x "$RC_LOCAL"
 fi
 sed -i '/# === venus-os-observability service persistence ===/,/# === end venus-os-observability ===/d' "$RC_LOCAL" 2>/dev/null || true
-cat >> "$RC_LOCAL" << 'RCEOF'
+HOOK=$(mktemp /data/.venus-observability-boot.XXXXXX)
+cat > "$HOOK" << 'RCEOF'
 
 # === venus-os-observability service persistence ===
 # Recreate /service symlink on boot (lost since /service is tmpfs).
 # NOTE: /data/rc/S99venus-os-observability.sh is NOT executed by Venus OS;
 # boot hooks are only /data/rc.local and /data/rcS.local.
-rm -rf /service/venus-os-observability
-ln -sf /data/venus-os-observability/service/venus-os-observability /service/venus-os-observability
+ln -snf /data/venus-os-observability/service/venus-os-observability /service/venus-os-observability
 sleep 2
 svc -u /service/venus-os-observability/log 2>/dev/null || true
 svc -u /service/venus-os-observability 2>/dev/null || true
 # === end venus-os-observability ===
 RCEOF
+awk -v hook="$HOOK" '
+    function insert_hook() { while ((getline line < hook) > 0) print line; close(hook) }
+    !inserted && /^[[:space:]]*exit[[:space:]]+0[[:space:]]*$/ { insert_hook(); inserted=1 }
+    { print }
+    END { if (!inserted) insert_hook() }
+' "$RC_LOCAL" > "$RC_LOCAL.observability"
+chmod +x "$RC_LOCAL.observability"
+mv "$RC_LOCAL.observability" "$RC_LOCAL"
+rm -f "$HOOK"
 sep "refreshed rc.local boot persistence block"
 
 # 7. Remove dead S99 hook (Venus never runs /data/rc/S99*).
@@ -123,9 +148,6 @@ fi
 
 # 8. Give svscan a moment to spawn fresh supervisors.
 sleep 3
-
-# 9. Let PackageManager rediscover the package (version changed).
-svc -t /service/PackageManager 2>/dev/null || true
 
 # 10. Bring everything back up.
 for svc in /service/$SVC_NAME/log /service/$SVC_NAME; do

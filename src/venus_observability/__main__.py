@@ -18,6 +18,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import ALWAYS_OFF
 from prometheus_client import start_http_server
 
 from .correlation import (
@@ -59,7 +60,9 @@ def setup_telemetry(
     resource = Resource.create({SERVICE_NAME: service_name})
 
     # Tracing
-    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider = TracerProvider(
+        resource=resource, sampler=None if otlp_endpoint else ALWAYS_OFF
+    )
     trace.set_tracer_provider(tracer_provider)
 
     if otlp_endpoint:
@@ -259,7 +262,7 @@ def main() -> None:
 
     def signal_handler(signum: int, frame: FrameType | None) -> None:
         logger.info("Received signal %s, shutting down", signum)
-        service.stop()
+        # The lifespan context owns cleanup, including signal-triggered exits.
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, signal_handler)

@@ -5,7 +5,9 @@ Test configuration and fixtures for venus-os-observability.
 # pylint: disable=import-error,wrong-import-position,protected-access
 # pylint: disable=redefined-outer-name,unused-variable,unused-argument
 
+import math
 import sys
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -98,10 +100,25 @@ class TestVictronMetrics:
             victron_metrics_obj._extract_serial("com.victronenergy.solarcharger.ttyO0") == "ttyO0"
         )
 
-    def test_update_ignores_invalid_values(self, victron_metrics_obj: VictronMetrics) -> None:
-        """Test that non-numeric values are ignored."""
-        victron_metrics_obj.update_from_dbus("com.victronenergy.battery.ttyO1", "/Soc", "invalid")
-        victron_metrics_obj.battery_soc.set.assert_not_called()  # type: ignore[attr-defined]
+    @pytest.mark.parametrize("invalid", [None, [], [1], {}, "invalid", math.inf, math.nan])
+    def test_update_invalidates_unavailable_values(
+        self, victron_metrics_obj: VictronMetrics, invalid: Any
+    ) -> None:
+        """Unavailable values must replace old readings in both exporters."""
+        from venus_observability.metrics import battery_soc, update_prometheus_from_dbus
+
+        service = "com.victronenergy.battery.invalid_test"
+        for value in (85, invalid, 0):
+            victron_metrics_obj.update_from_dbus(service, "/Soc", value)
+            update_prometheus_from_dbus(service, "/Soc", value)
+            gauge = cast(MagicMock, victron_metrics_obj.battery_soc)
+            otel = gauge.set.call_args.args[0]
+            prometheus = battery_soc.labels(serial="invalid_test")._value.get()
+            if value is invalid:
+                assert math.isnan(otel)
+                assert math.isnan(prometheus)
+            else:
+                assert otel == prometheus == value
 
     def test_update_with_attributes(self, victron_metrics_obj: VictronMetrics) -> None:
         """Test updating with additional attributes."""
