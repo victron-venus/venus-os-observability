@@ -352,3 +352,32 @@ async def test_create_listener(
     mock_listener_class.assert_called_once_with(mock_metrics)
     mock_discovery_class.assert_called_once_with(mock_listener.bus)
     mock_listener.subscribe_service.assert_called_once()
+
+
+def test_dbus_string_keys_are_normalized_for_real_otel(caplog):
+    """dbus.String subclasses are rejected by OTel's exact-type validator."""
+    from opentelemetry.sdk.trace import TracerProvider
+
+    class DBusString(str):
+        """Stand-in preserving dbus.String exact-type behavior without D-Bus."""
+
+    provider = TracerProvider()
+    listener = DBusSignalListener(
+        metrics=MagicMock(), bus=MagicMock(), tracer=provider.get_tracer("regression")
+    )
+    with listener._trace_signal("com.victronenergy.system", "/", {DBusString("/Soc"): 80}) as span:
+        assert span.attributes["dbus.changed_keys"] == ("/Soc",)
+    assert "Invalid type" not in caplog.text
+    provider.shutdown()
+
+
+def test_nonrecording_span_does_not_serialize_dbus_values():
+    """Metrics-only mode must not format every D-Bus payload for discarded traces."""
+    listener = DBusSignalListener(metrics=MagicMock(), bus=MagicMock(), tracer=MagicMock())
+    span = MagicMock()
+    span.is_recording.return_value = False
+    value = MagicMock()
+    value.__str__.side_effect = AssertionError("unnecessary payload serialization")
+    with patch("venus_observability.dbus_listener.update_prometheus_from_dbus"):
+        listener._handle_value("com.victronenergy.system", "/Unknown", value, span)
+    listener.metrics.update_from_dbus.assert_called_once()
