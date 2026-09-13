@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.5 - 2026-09-12
+
+- Resolve D-Bus senders to stable Venus service names using asynchronous startup
+  discovery and `NameOwnerChanged`; remove superseded owners instead of retaining
+  transient process names in metric labels and the owner cache.
+- Preserve startup signal batches until their service is resolved, with a bounded
+  queue, expiry counter and rate-limited diagnostic. Retry failed discovery without
+  blocking the GLib loop or scanning all owners for every measurement.
+- Mark previously published Prometheus and OpenTelemetry gauges unavailable when
+  their service loses or replaces its owner; keep stable counters cumulative and
+  recover on fresh values, including valid zero readings.
+- Register the message filter once across subscriptions and cancel owner lookups,
+  pending batches and timer callbacks on shutdown. Include the new owner tracker
+  in the validated native SetupHelper archive.
+
+The alert relay, deployment configuration and installer behavior are unchanged.
+
 ## 0.1.4 - 2026-09-12
 
 - Avoid recording D-Bus trace payloads when tracing is disabled and normalize

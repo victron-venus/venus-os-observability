@@ -82,6 +82,12 @@ dbus_signal_errors = Counter(
     ["service", "path", "error_type"],
 )
 
+dbus_unresolved_signals_dropped = Counter(
+    "victron_dbus_unresolved_signals_dropped_total",
+    "Unresolved D-Bus batches discarded after queue overflow or expiry",
+    ["reason"],
+)
+
 # MQTT metrics
 mqtt_messages_received = Counter(
     "victron_mqtt_messages_received_total",
@@ -108,6 +114,11 @@ class VictronMetrics:
 
     def __init__(self, meter: Meter):
         self.meter = meter
+        # Retain only active series and their latest publisher. Service suffixes
+        # can collide, so service loss must not invalidate another publisher.
+        self._active_gauges: dict[
+            tuple[int, tuple[tuple[str, Any], ...]], tuple[str, Any, dict[str, Any]]
+        ] = {}
 
         # Create instruments
         self.battery_soc = meter.create_gauge(
@@ -173,7 +184,7 @@ class VictronMetrics:
             value: Signal value
             attributes: Additional attributes (serial, etc.)
         """
-        attrs = attributes or {}
+        attrs = dict(attributes or {})
 
         # Extract serial from service name
         serial = self._extract_serial(service)
@@ -184,35 +195,35 @@ class VictronMetrics:
         path_lower = path.lower()
 
         if path_lower == "/soc":
-            self._set_gauge(self.battery_soc, value, attrs)
+            self._set_gauge(self.battery_soc, value, attrs, service)
         elif path_lower == "/dc/0/power":
-            self._set_gauge(self.battery_power, value, attrs)
+            self._set_gauge(self.battery_power, value, attrs, service)
         elif path_lower.startswith("/dc/0/voltages/cell"):
             cell_num = path_lower.replace("/dc/0/voltages/cell", "")
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
-                self._set_gauge(self.cell_voltage, value, attrs)
+                self._set_gauge(self.cell_voltage, value, attrs, service)
         elif path_lower.startswith("/temperatures/cell"):
             cell_num = path_lower.replace("/temperatures/cell", "")
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
-                self._set_gauge(self.cell_temperature, value, attrs)
+                self._set_gauge(self.cell_temperature, value, attrs, service)
         elif path_lower in ("/dc/pv/power", "/yield/power") or (
             path_lower == "/ac/power" and ".pvinverter." in service
         ):
-            self._set_gauge(self.pv_power, value, attrs)
+            self._set_gauge(self.pv_power, value, attrs, service)
         elif path_lower == "/ac/grid/power" or self._is_phase_power(path_lower, "grid"):
             attrs = dict(attrs, phase=self._phase_from_path(path))
-            self._set_gauge(self.grid_power, value, attrs)
+            self._set_gauge(self.grid_power, value, attrs, service)
         elif (
             path_lower == "/ac/loads/power"
             or self._is_phase_power(path_lower, "loads")
             or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
         ):
             attrs = dict(attrs, phase=self._phase_from_path(path))
-            self._set_gauge(self.ac_loads, value, attrs)
+            self._set_gauge(self.ac_loads, value, attrs, service)
         elif path_lower == "/state":
-            self._set_gauge(self.inverter_state, value, attrs)
+            self._set_gauge(self.inverter_state, value, attrs, service)
 
     @staticmethod
     def _phase_from_path(path: str) -> str:
@@ -225,9 +236,24 @@ class VictronMetrics:
         """Match per-phase watt paths like /Ac/Grid/L1/Power."""
         return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith("/power")
 
-    def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any]) -> None:
+    def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any], service: str) -> None:
         """Publish unavailable values as NaN, including Venus empty arrays."""
-        gauge.set(_numeric_or_nan(value), attributes)
+        # OpenTelemetry accepts primitive attributes and sequences. Freeze
+        # sequences so a caller cannot change a recorded series after delivery.
+        attrs = {
+            key: tuple(value) if isinstance(value, list | tuple) else value
+            for key, value in attributes.items()
+        }
+        gauge.set(_numeric_or_nan(value), attrs)
+        key = (id(gauge), tuple(sorted(attrs.items())))
+        self._active_gauges[key] = (service, gauge, attrs)
+
+    def invalidate_service(self, service: str) -> None:
+        """Invalidate only existing series last published by the lost service."""
+        for key, (publisher, gauge, attrs) in tuple(self._active_gauges.items()):
+            if publisher == service:
+                gauge.set(math.nan, attrs)
+                del self._active_gauges[key]
 
     def _extract_serial(self, service: str) -> str:
         """Extract device serial from service name."""
@@ -240,6 +266,24 @@ class VictronMetrics:
 
 
 # Prometheus-only metrics helpers (for direct /metrics endpoint)
+_prometheus_publishers: dict[Gauge, str] = {}
+
+
+def _set_prometheus_gauge(service: str, gauge: Gauge, value: Any, **labels: str) -> None:
+    """Track the existing label child, not a new service-to-label mapping."""
+    child = gauge.labels(**labels)
+    child.set(_numeric_or_nan(value))
+    _prometheus_publishers[child] = service
+
+
+def invalidate_prometheus_service(service: str) -> None:
+    """Set the lost publisher's gauges to NaN without creating any label children."""
+    for child, publisher in tuple(_prometheus_publishers.items()):
+        if publisher == service:
+            child.set(math.nan)
+            del _prometheus_publishers[child]
+
+
 def _phase_from_path(path: str) -> str:
     """Extract the phase component (e.g. 'l1') from /Ac/<X>/<L1>/Power."""
     parts = path.split("/")
@@ -261,35 +305,37 @@ def update_prometheus_from_dbus(
     path_lower = path.lower()
 
     if path_lower == "/soc":
-        battery_soc.labels(serial=serial).set(_numeric_or_nan(value))
+        _set_prometheus_gauge(service, battery_soc, value, serial=serial)
     elif path_lower == "/dc/0/power":
-        battery_power.labels(serial=serial).set(_numeric_or_nan(value))
+        _set_prometheus_gauge(service, battery_power, value, serial=serial)
     elif path_lower in ("/dc/pv/power", "/yield/power") or (
         path_lower == "/ac/power" and ".pvinverter." in service
     ):
         # system aggregates PV as /Dc/Pv/Power; solarcharger emits /Yield/Power;
         # dbus-pvinverter services (dbus-tasmota-pv) report PV as /Ac/Power
-        pv_power.labels(serial=serial).set(_numeric_or_nan(value))
+        _set_prometheus_gauge(service, pv_power, value, serial=serial)
     elif path_lower == "/ac/grid/power" or _is_phase_power(path_lower, "grid"):
         # Venus OS emits per-phase paths (/Ac/Grid/L1/Power); aggregate has no phase
-        grid_power.labels(serial=serial, phase=_phase_from_path(path)).set(_numeric_or_nan(value))
+        _set_prometheus_gauge(
+            service, grid_power, value, serial=serial, phase=_phase_from_path(path)
+        )
     elif (
         path_lower in ("/ac/loads/power",)
         or _is_phase_power(path_lower, "loads")
         or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
     ):
         # Per-phase consumption (/Ac/Consumption/L1/Power) or legacy /Ac/Loads/*
-        ac_loads.labels(serial=serial, phase=_phase_from_path(path)).set(_numeric_or_nan(value))
+        _set_prometheus_gauge(service, ac_loads, value, serial=serial, phase=_phase_from_path(path))
     elif path_lower == "/state":
-        inverter_state.labels(serial=serial).set(_numeric_or_nan(value))
+        _set_prometheus_gauge(service, inverter_state, value, serial=serial)
     elif path_lower.startswith("/dc/0/voltages/cell"):
         cell = path_lower.replace("/dc/0/voltages/cell", "")
         if cell.isdigit():
-            cell_voltages.labels(serial=serial, cell=cell).set(_numeric_or_nan(value))
+            _set_prometheus_gauge(service, cell_voltages, value, serial=serial, cell=cell)
     elif path_lower.startswith("/temperatures/cell"):
         cell = path_lower.replace("/temperatures/cell", "")
         if cell.isdigit():
-            cell_temperature.labels(serial=serial, cell=cell).set(_numeric_or_nan(value))
+            _set_prometheus_gauge(service, cell_temperature, value, serial=serial, cell=cell)
 
     # Track signal
     dbus_signals_received.labels(
