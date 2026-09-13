@@ -10,9 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from scripts.package_release import build_package
-
 REPO = Path(__file__).resolve().parents[1]
+PACKAGE_SPEC = importlib.util.spec_from_file_location(
+    "package_release", REPO / "scripts/package_release.py"
+)
+assert PACKAGE_SPEC is not None and PACKAGE_SPEC.loader is not None
+PACKAGER = importlib.util.module_from_spec(PACKAGE_SPEC)
+PACKAGE_SPEC.loader.exec_module(PACKAGER)
 SPEC = importlib.util.spec_from_file_location(
     "validate_setuphelper_archive", REPO / "scripts/validate_setuphelper_archive.py"
 )
@@ -63,7 +67,7 @@ def test_candidate_adapter_preserves_the_native_contract(tmp_path: Path) -> None
     subprocess.run(["git", "add", "."], cwd=source, check=True)
     (source / "local_config.py").write_text("DEVICE_LOCAL = True\n")
     version = (source / "version").read_text().strip()
-    assets = build_package(source, version, "rc", tmp_path / "assets")
+    assets = PACKAGER.build_package(source, version, "rc", tmp_path / "assets")
     assert len(assets) == 1
     VALIDATOR.validate_archive(str(assets[0]))
 
