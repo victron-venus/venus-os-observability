@@ -14,7 +14,7 @@
   ],
   "notes": [
     "Hardware-free checks do not validate a live Venus OS device, D-Bus firmware ABI, physical sensors or in-place device upgrades.",
-    "Candidate packaging preserves committed runtime version metadata. Nightly/beta/RC identity is recorded by the release manifest.",
+    "Candidate overlays identify beta/nightly packages; RC packages retain the base version so stable promotes the exact verified bytes.",
     "OCI container assets are verified and promoted with the GitHub release. Registry and PyPI deployment must use a separately reviewed promotion adapter; CI does not update latest.",
     "Legacy IPK publishing is retired; the supported Venus OS deliverable is the complete SetupHelper runtime archive."
   ],
@@ -28,5 +28,78 @@
   ],
   "mode": "release",
   "repository": "victron-venus/venus-os-observability",
-  "visibility": "public"
+  "visibility": "public",
+  "versioning": {
+    "schema": 1,
+    "promotion": "promote-bytes",
+    "files": [
+      {
+        "path": "version",
+        "format": "text",
+        "value": "package"
+      },
+      {
+        "path": "pyproject.toml",
+        "format": "toml",
+        "value": "package",
+        "field": "project.version",
+        "ecosystem": "pep440"
+      },
+      {
+        "path": "uv.lock",
+        "format": "uv-lock",
+        "value": "package",
+        "package": "venus-os-observability",
+        "ecosystem": "pep440"
+      },
+      {
+        "path": "src/venus_observability/__init__.py",
+        "format": "python",
+        "value": "package",
+        "field": "__version__",
+        "ecosystem": "pep440"
+      }
+    ],
+    "artifacts": [
+      {
+        "path": "venus-os-observability-*.tar.gz",
+        "format": "tar-text",
+        "value": "package",
+        "member": "venus-os-observability/version"
+      },
+      {
+        "path": "venus-os-observability-*.tar.gz",
+        "format": "tar-toml",
+        "value": "package",
+        "member": "venus-os-observability/pyproject.toml",
+        "field": "project.version",
+        "ecosystem": "pep440"
+      },
+      {
+        "path": "venus_os_observability-*.whl",
+        "format": "wheel",
+        "value": "package",
+        "package": "venus-os-observability",
+        "ecosystem": "pep440"
+      },
+      {
+        "path": "venus_os_observability-*.tar.gz",
+        "format": "sdist",
+        "value": "package",
+        "package": "venus-os-observability",
+        "ecosystem": "pep440"
+      },
+      {
+        "path": "venus-os-observability-container.oci.tar",
+        "format": "oci",
+        "field": [
+          "config",
+          "Labels",
+          "org.opencontainers.image.version"
+        ],
+        "value": "package"
+      }
+    ],
+    "toolkit_revision": "fc404f055bbd72d9355f90d023065273d8016932"
+  }
 }
