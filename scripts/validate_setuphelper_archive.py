@@ -5,6 +5,7 @@ import re
 import sys
 import tarfile
 import tomllib
+from datetime import datetime
 from pathlib import PurePosixPath
 
 PREFIX = "venus-os-observability"
@@ -37,6 +38,32 @@ EXECUTABLES = {
 }
 
 
+def expected_python_version(version: str) -> str:
+    """Map supported SetupHelper candidate identities to their PEP 440 companion."""
+    base = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    if re.fullmatch(base, version, re.ASCII):
+        return version
+    beta = re.fullmatch(rf"({base})-beta\.([1-9][0-9]*)", version, re.ASCII)
+    if beta:
+        return f"{beta.group(1)}b{beta.group(2)}"
+    nightly = re.fullmatch(
+        rf"({base})-nightly\.([0-9]{{14}})\.([1-9][0-9]*)\.([1-9][0-9]*)",
+        version,
+        re.ASCII,
+    )
+    if nightly and len(nightly.group(3)) <= 20 and len(nightly.group(4)) <= 10:
+        try:
+            datetime.strptime(nightly.group(2), "%Y%m%d%H%M%S")
+        except ValueError:
+            pass
+        else:
+            return (
+                f"{nightly.group(1)}.dev{nightly.group(2)}"
+                f"{int(nightly.group(3)):020d}{int(nightly.group(4)):010d}"
+            )
+    raise ValueError("Unsupported SetupHelper release version")
+
+
 def validate_archive(path: str) -> None:
     """Reject incomplete, unsafe or version-inconsistent source archives."""
     with tarfile.open(path, "r:gz") as archive:
@@ -59,8 +86,7 @@ def validate_archive(path: str) -> None:
         if missing := REQUIRED - contents.keys():
             raise ValueError(f"Missing runtime files: {sorted(missing)}")
         version = contents["version"].decode().strip()
-        if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-            raise ValueError("Expected a numeric patch release version")
+        python_version = expected_python_version(version)
         metadata = tomllib.loads(contents["pyproject.toml"].decode())
         module = ast.parse(contents["src/venus_observability/__init__.py"])
         versions = [
@@ -72,7 +98,9 @@ def validate_archive(path: str) -> None:
                 for target in node.targets
             )
         ]
-        if metadata["project"]["version"] != version or versions != [version]:
+        if metadata["project"]["version"] != python_version or versions != [
+            python_version
+        ]:
             raise ValueError("Package, Python and SetupHelper versions differ")
 
 
