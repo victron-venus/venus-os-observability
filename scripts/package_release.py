@@ -91,15 +91,16 @@ def package_inputs(root: Path, config: PackageConfig) -> tuple[list[str], list[s
         if config.get("source", False)
         or any(name == item or name.startswith(item + "/") for item in includes)
     )
-    # These generated records contain only frozen build identity and input hashes.
-    # Include them explicitly; all other untracked operator files remain excluded.
+    # Distribution builders receive frozen identity and input hashes, but a native
+    # SetupHelper archive has an explicit runtime allowlist and must not ship them.
     evidence = [
         name
         for name in (".release-plan.json", ".release-inputs.json")
         if (root / name).is_file() and not (root / name).is_symlink()
     ]
+    archive_evidence = evidence if config.get("source", False) else []
     return sorted(set(tracked + evidence)), sorted(
-        set(selected + evidence)
+        set(selected + archive_evidence)
     ) if selected else []
 
 
