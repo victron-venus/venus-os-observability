@@ -9,7 +9,8 @@ RUN pip install --no-cache-dir --only-binary :all: uv==0.11.31
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-RUN uv pip install --system --no-cache --only-binary :all: .
+RUN uv build --wheel --out-dir /tmp/wheels \
+    && uv pip install --system --no-cache --only-binary :all: /tmp/wheels/*.whl
 
 # Runtime stage
 FROM python:3.11-slim
