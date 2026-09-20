@@ -1,7 +1,7 @@
 # Venus OS Observability - Docker
 
 # Build stage
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 WORKDIR /app
 RUN pip install --no-cache-dir --only-binary :all: uv==0.11.31
@@ -13,7 +13,14 @@ RUN uv build --wheel --out-dir /tmp/wheels \
     && uv pip install --system --no-cache --only-binary :all: /tmp/wheels/*.whl
 
 # Runtime stage
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
+
+# The listener uses dbus-python and GLib. Bookworm's bindings have the same
+# CPython 3.11 ABI as this image; dbus-next does not provide these modules.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-dbus python3-gi \
+    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONPATH=/usr/lib/python3/dist-packages
 
 WORKDIR /app
 
