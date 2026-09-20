@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 
 PREFIX = "venus-os-observability"
 REQUIRED = {
+    ".python-version",
     "version",
     "setup",
     "update.sh",
