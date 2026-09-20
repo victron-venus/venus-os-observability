@@ -12,7 +12,8 @@
     "uv.lock",
     "config.example.yaml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    ".python-version"
   ],
   "wheel": true
 }

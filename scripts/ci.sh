@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python_bin="${CI_PYTHON:-$PWD/.venv-ci/bin/python}"
 if [[ "${1:-}" == --install ]]; then
-  uv venv .venv-ci --python 3.11
+  uv venv .venv-ci --python 3.12.13
   uv pip install --python "$python_bin" -e ".[dev,test]" ruff mypy pytest-cov bandit==1.9.2 build==1.2.2.post1 twine==6.1.0
   exit 0
 fi
