@@ -6,7 +6,7 @@ package_output=$("$python_bin" scripts/package_release.py "$@")
 printf '%s\n' "$package_output"
 validated=0
 while IFS= read -r asset; do
-  if [[ "$asset" == */venus-os-observability-*.tar.gz ]]; then
+  if [[ "${asset##*/}" == venus-os-observability-*.tar.gz ]]; then
     "$python_bin" scripts/validate_setuphelper_archive.py "$asset"
     validated=1
   fi

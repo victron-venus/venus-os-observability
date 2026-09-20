@@ -92,6 +92,27 @@ def test_complete_archive(tmp_path: Path) -> None:
     VALIDATOR.validate_archive(str(path))
 
 
+def test_wrapper_only_validates_native_archive_basename(tmp_path: Path) -> None:
+    """A worktree name must not make the Python sdist look like a native archive."""
+    source = tmp_path / "venus-os-observability-worktree"
+    scripts = source / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy(REPO / "scripts/package-release.sh", scripts)
+    (scripts / "package_release.py").write_text(
+        "from pathlib import Path\n"
+        "root = Path.cwd() / 'release-dist'\n"
+        "print(root / 'venus-os-observability-1.2.3.tar.gz')\n"
+        "print(root / 'venus_os_observability-1.2.3.tar.gz')\n",
+        encoding="utf-8",
+    )
+    (scripts / "validate_setuphelper_archive.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "assert Path(sys.argv[1]).name == 'venus-os-observability-1.2.3.tar.gz'\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["bash", str(scripts / "package-release.sh")], check=True)
+
+
 def test_candidate_adapter_preserves_the_native_contract(tmp_path: Path) -> None:
     """Validate real candidate packaging against the native installer's file contract."""
     source = tmp_path / "source"

@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir --only-binary :all: uv==0.11.31
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-RUN uv pip install --system --no-cache --only-binary :all: -e .
+RUN uv pip install --system --no-cache --only-binary :all: .
 
 # Runtime stage
 FROM python:3.11-slim
@@ -26,7 +26,7 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:9090/metrics || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/metrics', timeout=5).close()" || exit 1
 
 # Expose Prometheus metrics port
 EXPOSE 9090
