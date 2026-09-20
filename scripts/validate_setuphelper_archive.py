@@ -51,16 +51,16 @@ def expected_python_version(version: str) -> str:
         version,
         re.ASCII,
     )
-    if nightly and len(nightly.group(3)) <= 20 and len(nightly.group(4)) <= 10:
+    if nightly:
         try:
             datetime.strptime(nightly.group(2), "%Y%m%d%H%M%S")
         except ValueError:
             pass
         else:
-            return (
-                f"{nightly.group(1)}.dev{nightly.group(2)}"
-                f"{int(nightly.group(3)):020d}{int(nightly.group(4)):010d}"
-            )
+            attempt = int(nightly.group(4))
+            number = int(nightly.group(3)) * 1_000_000 + attempt
+            if attempt < 1_000_000 and number <= 2**64 - 2:
+                return f"{nightly.group(1)}.dev{number}"
     raise ValueError("Unsupported SetupHelper release version")
 
 

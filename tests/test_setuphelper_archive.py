@@ -161,7 +161,7 @@ def test_frozen_candidate_package_excludes_internal_receipts(
         ("1.2.3-beta.7", "1.2.3b7"),
         (
             "1.2.3-nightly.20260913235959.12.3",
-            "1.2.3.dev20260913235959000000000000000000120000000003",
+            "1.2.3.dev12000003",
         ),
     ],
 )
@@ -178,6 +178,8 @@ def test_supported_setuphelper_versions_have_exact_python_projection(
         "1.2.3-alpha.1",
         "1.2.3-rc.1",
         "1.2.3-nightly.20260230235959.1.1",
+        "1.2.3-nightly.20260913235959.12.1000000",
+        "1.2.3-nightly.20260913235959.18446744073709.551615",
         "01.2.3",
     ],
 )
