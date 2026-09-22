@@ -2,10 +2,6 @@ name: Docker
 
 on:
   workflow_call:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
   docker:
@@ -23,3 +19,4 @@ jobs:
           tags: ghcr.io/victron-venus/venus-os-observability:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+    timeout-minutes: 30
