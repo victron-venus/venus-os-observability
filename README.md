@@ -226,6 +226,24 @@ Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agen
 > the Grafana database. For a local working copy use a `*.local` file — already
 > covered by `.gitignore`.
 
+### Grouped delivery and query failures
+
+The bridge preserves Grafana webhook grouping: one email and one Telegram
+message per payload, with individual MQTT banners for independent problems.
+`DatasourceError` and `DatasourceNoData` instances from the same source and
+status become one notification naming the data source, affected checks, and
+query error. They no longer reuse the underlying rules' failure summaries.
+Recovery notifications explicitly say `Resolved`; a mixed group still includes
+both active and recovered problems.
+
+The Synology site policy is versioned in
+`4alvit/terraform-portainer-synology/deployments/inverter-monitoring/runtime/`.
+It uses the Kubernetes Prometheus endpoint, 5-minute pending periods and
+24-hour reminders. Query errors have a separate policy grouped by source,
+with a 5-minute initial notification wait. Keep error reporting enabled:
+changing an error state to Normal would hide a broken monitoring pipeline.
+The bridge does not impose an additional cooldown that could hide a new incident.
+
 ### Channel 1: MQTT banners (already live)
 
 Source: [`alert-mqtt-bridge/`](alert-mqtt-bridge/). Container `venus-alert-bridge`
@@ -287,9 +305,9 @@ TG_CHAT_ID=<your-chat-id>
 ```
 
 (`TG_CHAT_ID` accepts a comma-separated list for group chats.) Then rebuild
-and recreate the container per **Channel 3 → 3.2**. Nothing else to
-configure: every firing/resolved alert goes to MQTT banners + email +
-Telegram from one webhook.
+and recreate the container per **Channel 3 → 3.2**. Each webhook group goes to
+MQTT banners plus one email/Telegram digest,
+including firing and recovery states.
 
 #### 2.5 Verify end-to-end
 
@@ -356,8 +374,9 @@ sudo docker run -d --name venus-alert-bridge --restart unless-stopped \
   -e MQTT_HOST=192.168.160.150 --env-file envfile venus-alert-bridge:latest
 ```
 
-No Email contact point in Grafana and no nested notification policies —
-the default policy stays pointed at the **MQTT bridge** webhook only.
+No Email contact point is needed in Grafana. The default policy and the
+site-specific nested policies send grouped webhooks to **MQTT bridge**.
+The site policy and rollout instructions are documented above.
 
 #### 3.3 Verify
 
