@@ -175,15 +175,73 @@ def _banner_fields(
     return channel_level, mqtt_level, summary, human
 
 
+def coalesce_datasource_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Describe a failed data source once, without claiming its checks failed."""
+    notifications = []
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for alert in alerts:
+        labels = alert.get("labels", {})
+        name = labels.get("alertname", "unknown")
+        if name not in {"DatasourceError", "DatasourceNoData"}:
+            notifications.append(alert)
+            continue
+        key = (name, labels.get("datasource_uid", "unknown"), alert.get("status", "firing"))
+        groups.setdefault(key, []).append(alert)
+    for (name, source, status), affected in groups.items():
+        checks = sorted(
+            {
+                a.get("labels", {}).get("rulename")
+                or a.get("labels", {}).get("__alert_rule_uid__", "unknown check")
+                for a in affected
+            }
+        )
+        errors = sorted(
+            {
+                str(a.get("annotations", {}).get("Error"))
+                for a in affected
+                if a.get("annotations", {}).get("Error")
+            }
+        )
+        if status == "resolved":
+            summary = f"Data source {source}: query problem resolved"
+        else:
+            problem = "query failed" if name == "DatasourceError" else "returned no data"
+            summary = f"Data source {source} {problem}; {len(checks)} checks affected"
+        detail = "Affected checks:\n" + "\n".join(f"- {check}" for check in checks)
+        if status != "resolved" and errors:
+            detail += "\n\nQuery error:\n" + "\n".join(errors)
+        notifications.append(
+            {
+                "labels": {"alertname": name, "datasource_uid": source, "severity": "warning"},
+                "status": status,
+                "annotations": {"summary": summary},
+                "valueString": detail,
+                "fingerprint": f"{name}-{source}",
+                "startsAt": min(a.get("startsAt") or "" for a in affected),
+            }
+        )
+    return notifications
+
+
+def _alert_fields(alert: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Use truthful titles for firing and recovery notifications."""
+    labels = alert.get("labels", {})
+    name = labels.get("alertname", "unknown")
+    summary = alert.get("annotations", {}).get("summary") or name
+    human = human_alert_value(compact_value(alert.get("valueString", "")))
+    status = alert.get("status", "firing")
+    if status == "resolved":
+        summary = f"Resolved: {summary}"
+    return _banner_fields(status, labels.get("severity", "warning"), summary, human)
+
+
 def _publish_one_alert(alert: dict[str, Any]) -> None:
-    """Publish one Grafana alert to MQTT (+ optional email/Telegram)."""
+    """Publish a notification to MQTT; external channels get one group digest."""
     labels = alert.get("labels", {})
     name = labels.get("alertname", "unknown")
     status = alert.get("status", "firing")
-    summary = alert.get("annotations", {}).get("summary") or name
-    human = human_alert_value(compact_value(alert.get("valueString", "")))
-    severity = labels.get("severity", "warning")
-    channel_level, mqtt_level, title, body = _banner_fields(status, severity, summary, human)
+    _, mqtt_level, title, body = _alert_fields(alert)
+    identity = alert.get("fingerprint") or name
 
     # ponytail: fire-and-forget publish; alerts missed while broker is down
     # are acceptable because rules keep firing state visible in Grafana UI.
@@ -192,7 +250,7 @@ def _publish_one_alert(alert: dict[str, Any]) -> None:
         NOTIFY_TOPIC,
         json.dumps(
             {
-                "id": f"grafana-{name}-{status}",
+                "id": f"grafana-{identity}-{status}",
                 "level": mqtt_level,
                 "title": title,
                 "body": body,
@@ -201,17 +259,39 @@ def _publish_one_alert(alert: dict[str, Any]) -> None:
             }
         ),
     )
+
+
+def _send_digest(alerts: list[dict[str, Any]]) -> None:
+    """Preserve Grafana grouping across email and Telegram, including mixed states."""
+    if not alerts:
+        return
+    fields = [_alert_fields(alert) for alert in alerts]
+    if len(fields) == 1:
+        level, _, summary, body = fields[0]
+    else:
+        level = next(
+            candidate
+            for candidate in ("critical", "warning", "info")
+            if any(field[0] == candidate for field in fields)
+        )
+        firing = sum(a.get("status", "firing") != "resolved" for a in alerts)
+        summary = f"{firing} active, {len(alerts) - firing} resolved monitoring notifications"
+        body = "\n\n".join(f"{title}\n{detail}".strip() for _, _, title, detail in fields)
+    name = alerts[0].get("labels", {}).get("alertname", "unknown")
     if SMTP_HOST and SMTP_TO:
-        send_email(name, channel_level, summary, human)
+        send_email(name, level, summary, body)
     if TG_BOT_TOKEN and TG_CHAT_IDS:
-        send_telegram(name, channel_level, summary, human)
+        # Telegram rejects messages over 4096 characters; keep one digest.
+        send_telegram(name, level, summary, body[:3500])
 
 
 def publish_alerts(payload: dict[str, Any]) -> int:
     """Map a Grafana webhook payload to MQTT notifications. Returns count."""
-    alerts = payload.get("alerts") or []
+    received = payload.get("alerts") or []
+    alerts = coalesce_datasource_alerts(received)
     for alert in alerts:
         _publish_one_alert(alert)
+    _send_digest(alerts)
 
     # Retained snapshot of current alert states for late subscribers.
     snapshot = [
@@ -227,7 +307,7 @@ def publish_alerts(payload: dict[str, Any]) -> int:
     client.publish(
         STATE_TOPIC, json.dumps({"updated": time.time(), "alerts": snapshot}), retain=True
     )
-    return len(alerts)
+    return len(received)
 
 
 class Handler(BaseHTTPRequestHandler):
