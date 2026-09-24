@@ -11,10 +11,12 @@ import json
 import threading
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
+from typing import Any
 from unittest.mock import Mock
 
 spec = importlib.util.spec_from_file_location("bridge_smoke", "/app/relay.py")
-bridge = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
+bridge: Any = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
 bridge.client = Mock()
 bridge.send_email = Mock()

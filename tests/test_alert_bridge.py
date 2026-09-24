@@ -2,16 +2,18 @@
 
 import importlib.util
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
 
 
 @pytest.fixture
-def bridge(monkeypatch):
+def bridge(monkeypatch: pytest.MonkeyPatch) -> Any:
     path = Path(__file__).resolve().parents[1] / "alert-mqtt-bridge" / "relay.py"
     spec = importlib.util.spec_from_file_location("alert_bridge", path)
-    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    module: Any = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "client", Mock())
     monkeypatch.setattr(module, "SMTP_HOST", "test.invalid")
@@ -23,7 +25,12 @@ def bridge(monkeypatch):
     return module
 
 
-def alert(name="DatasourceError", source="prometheus", status="firing", rule="agent"):
+def alert(
+    name: str = "DatasourceError",
+    source: str = "prometheus",
+    status: str = "firing",
+    rule: str = "agent",
+) -> dict[str, Any]:
     return {
         "status": status,
         "fingerprint": rule,
@@ -41,7 +48,7 @@ def alert(name="DatasourceError", source="prometheus", status="firing", rule="ag
     }
 
 
-def test_four_query_errors_send_one_truthful_notification(bridge):
+def test_four_query_errors_send_one_truthful_notification(bridge: Any) -> None:
     alerts = [alert(rule=rule) for rule in ("agent", "inverter", "errors", "signals")]
     assert bridge.publish_alerts({"alerts": alerts}) == 4
     bridge.send_email.assert_called_once()
@@ -56,7 +63,7 @@ def test_four_query_errors_send_one_truthful_notification(bridge):
     assert bridge.client.publish.call_count == 2  # One banner and retained snapshot.
 
 
-def test_distinct_sources_and_mixed_states_preserved_in_one_digest(bridge):
+def test_distinct_sources_and_mixed_states_preserved_in_one_digest(bridge: Any) -> None:
     alerts = [alert(), alert(source="loki"), alert(status="resolved", rule="recovered")]
     bridge.publish_alerts({"alerts": alerts})
     bridge.send_email.assert_called_once()
@@ -69,13 +76,13 @@ def test_distinct_sources_and_mixed_states_preserved_in_one_digest(bridge):
     assert bridge.client.publish.call_count == 4
 
 
-def test_real_alert_retains_critical_severity_in_mixed_group(bridge):
+def test_real_alert_retains_critical_severity_in_mixed_group(bridge: Any) -> None:
     bridge.publish_alerts({"alerts": [alert(), alert(name="BatteryLow")]})
     assert bridge.send_email.call_args.args[1] == "critical"
     assert "agent unreachable" in bridge.send_email.call_args.args[3]
 
 
-def test_recovery_does_not_repeat_failed_query_as_current_fault(bridge):
+def test_recovery_does_not_repeat_failed_query_as_current_fault(bridge: Any) -> None:
     bridge.publish_alerts({"alerts": [alert(status="resolved")]})
     _, level, subject, body = bridge.send_email.call_args.args
     assert level == "info"
@@ -83,12 +90,12 @@ def test_recovery_does_not_repeat_failed_query_as_current_fault(bridge):
     assert "connection refused" not in subject + body
 
 
-def test_no_data_is_not_claimed_to_be_an_agent_failure(bridge):
+def test_no_data_is_not_claimed_to_be_an_agent_failure(bridge: Any) -> None:
     bridge.publish_alerts({"alerts": [alert(name="DatasourceNoData")]})
     assert "returned no data" in bridge.send_email.call_args.args[2]
 
 
-def test_empty_payload_does_not_send_email_or_telegram(bridge):
+def test_empty_payload_does_not_send_email_or_telegram(bridge: Any) -> None:
     assert bridge.publish_alerts({"alerts": []}) == 0
     bridge.send_email.assert_not_called()
     bridge.send_telegram.assert_not_called()
