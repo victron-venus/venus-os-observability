@@ -31,6 +31,7 @@ import runpy
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(sys.argv[1]).parent))
 version_plan = runpy.run_path(sys.argv[1])
 policy = json.loads(Path(sys.argv[2]).read_text())
 plan = version_plan["create_plan"](
