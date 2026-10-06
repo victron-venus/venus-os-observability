@@ -236,12 +236,11 @@ query error. They no longer reuse the underlying rules' failure summaries.
 Recovery notifications explicitly say `Resolved`; a mixed group still includes
 both active and recovered problems.
 
-The Synology site policy is versioned in
-`4alvit/terraform-portainer-synology/deployments/inverter-monitoring/runtime/`.
-It uses the Kubernetes Prometheus endpoint, 5-minute pending periods and
-24-hour reminders. Query errors have a separate policy grouped by source,
-with a 5-minute initial notification wait. Keep error reporting enabled:
-changing an error state to Normal would hide a broken monitoring pipeline.
+Notification routing and Prometheus endpoints are deployment-specific. Keep site
+configuration and operational evidence outside this public repository. Configure
+Grafana grouping, pending periods and reminder intervals for the installation,
+and keep query errors separate from application alerts. Do not change an error
+state to Normal merely to silence a broken monitoring pipeline.
 The bridge does not impose an additional cooldown that could hide a new incident.
 
 ### Channel 1: MQTT banners (already live)
