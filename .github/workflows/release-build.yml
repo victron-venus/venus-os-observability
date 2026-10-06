@@ -16,52 +16,52 @@ permissions:
   contents: read
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((vars.CI_RUNNER_MODE == 'self-hosted' || vars.CI_RUNNER_MODE == 'k3s') && (contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event_name) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && (vars.CI_RUNNER_RELEASE_LABELS || '[]') || '["ubuntu-latest"]') }}
     timeout-minutes: 45
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        persist-credentials: false
-    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-      with:
-        python-version: '3.12.13'
-    - name: Download frozen release version plan
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-      with:
-        name: ${{ inputs.release_plan_artifact }}
-        path: .
-    - name: Apply frozen release version inputs
-      shell: bash
-      run: python3 scripts/version_plan.py sync --root . --plan .release-plan.json
-    - name: Install package build tools
-      run: 'python -m pip install --only-binary=:all: build==1.2.2.post1 twine==6.1.0'
-    - name: Build complete candidate assets
-      env:
-        RELEASE_VERSION: ${{ inputs.version }}
-        RELEASE_CHANNEL: ${{ inputs.channel }}
-      run: bash scripts/package-release.sh "$RELEASE_VERSION" "$RELEASE_CHANNEL"
-    - name: Enable emulation for ARM64 builds
-      uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a
-    - name: Set up container builder
-      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
-    - name: Export container without publishing a registry tag
-      run: bash scripts/package-container.sh
-    - name: Verify installed runtime and metrics health endpoint
-      run: |
-        docker buildx build --platform linux/amd64 --load --tag venus-observability:smoke .
-        docker run --rm --network none --entrypoint python venus-observability:smoke -c "from venus_observability.__main__ import setup_telemetry; import urllib.request; setup_telemetry(otlp_endpoint=None); assert urllib.request.urlopen('http://127.0.0.1:9090/metrics', timeout=5).status == 200"
-    - name: Verify all packaged checksums
-      working-directory: release-dist
-      run: sha256sum --check SHA256SUMS
-    - name: Verify and stage versioned release assets
-      shell: bash
-      env:
-        RELEASE_ASSET_TARGET: package
-        RELEASE_ASSET_PATTERN_0: release-dist/*
-      run: python3 scripts/stage_release_assets.py --target "$RELEASE_ASSET_TARGET" --pattern "$RELEASE_ASSET_PATTERN_0"
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-      with:
-        name: release-assets
-        path: release-assets/package/*
-        if-no-files-found: error
-        retention-days: 30
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.13'
+      - name: Download frozen release version plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ inputs.release_plan_artifact }}
+          path: .
+      - name: Apply frozen release version inputs
+        shell: bash
+        run: python3 scripts/version_plan.py sync --root . --plan .release-plan.json
+      - name: Install package build tools
+        run: 'python -m pip install --only-binary=:all: build==1.2.2.post1 twine==6.1.0'
+      - name: Build complete candidate assets
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: bash scripts/package-release.sh "$RELEASE_VERSION" "$RELEASE_CHANNEL"
+      - name: Enable emulation for ARM64 builds
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a
+      - name: Set up container builder
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
+      - name: Export container without publishing a registry tag
+        run: bash scripts/package-container.sh
+      - name: Verify installed runtime and metrics health endpoint
+        run: |
+          docker buildx build --platform linux/amd64 --load --tag venus-observability:smoke .
+          docker run --rm --network none --entrypoint python venus-observability:smoke -c "from venus_observability.__main__ import setup_telemetry; import urllib.request; setup_telemetry(otlp_endpoint=None); assert urllib.request.urlopen('http://127.0.0.1:9090/metrics', timeout=5).status == 200"
+      - name: Verify all packaged checksums
+        working-directory: release-dist
+        run: sha256sum --check SHA256SUMS
+      - name: Verify and stage versioned release assets
+        shell: bash
+        env:
+          RELEASE_ASSET_TARGET: package
+          RELEASE_ASSET_PATTERN_0: release-dist/*
+        run: python3 scripts/stage_release_assets.py --target "$RELEASE_ASSET_TARGET" --pattern "$RELEASE_ASSET_PATTERN_0"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-assets
+          path: release-assets/package/*
+          if-no-files-found: error
+          retention-days: 30
