@@ -1,12 +1,5 @@
 {
-  "validation_workflows": [
-    "ci.yml",
-    "lint.yml",
-    "test.yml",
-    "docker.yml",
-    "release-security.yml",
-    "codeql.yml"
-  ],
+  "validation_workflows": ["ci.yml", "lint.yml", "test.yml", "docker.yml", "release-security.yml", "codeql.yml", "dependency-review.yml"],
   "artifact_pattern": "release-assets*",
   "local_checks": [
     "bash scripts/ci.sh",

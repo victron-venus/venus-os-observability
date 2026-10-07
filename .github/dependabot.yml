@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /alert-mqtt-bridge
+    schedule:
+      interval: daily
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: daily
