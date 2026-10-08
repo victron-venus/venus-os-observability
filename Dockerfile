@@ -3,14 +3,16 @@ FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN python3 -m venv --system-site-packages /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir --only-binary :all: uv==0.11.31 \
-    && uv build --wheel --out-dir /tmp/wheels \
-    && uv pip install --python /opt/venv/bin/python --no-cache --only-binary :all: /tmp/wheels/*.whl
+COPY .github/requirements-release-build.txt .github/requirements-runtime.txt ./.github/
+RUN python3 -m venv /opt/build-venv \
+    && /opt/build-venv/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: -r .github/requirements-release-build.txt \
+    && /opt/build-venv/bin/python -m build --no-isolation --wheel --outdir /tmp/wheels . \
+    && python3 -m venv --system-site-packages /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: -r .github/requirements-runtime.txt \
+    && /opt/venv/bin/pip install --no-cache-dir --no-deps --no-index /tmp/wheels/*.whl
 
 FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 RUN apt-get update \

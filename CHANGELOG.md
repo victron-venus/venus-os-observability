@@ -8,13 +8,15 @@ Exports D-Bus/MQTT observations to OpenTelemetry and Prometheus. The existing RE
 
 ### Maintenance
 
+- Verify hashes for locked CI, security-tool, release-build and container Python dependencies; build local packages without resolving an isolated backend.
+- Preserve the alert relay’s Paho MQTT 1.6.1 API while verifying its source archive and building it with a locked backend in a separate container stage.
 - Separate metric path predicates from publication while preserving gauge labels, unavailable-value handling and service invalidation.
 - Publish reviewed release notes from the exact source commit used to build each candidate, preserving build provenance.
 - Document contribution checks, confidential security reporting and the project-specific trust boundaries.
 
 ### Upgrade
 
-These maintenance changes do not introduce a configuration or data migration. Retain local configuration and credentials when using the documented update procedure. Validate the candidate on an isolated system before production use; automated checks do not establish hardware acceptance.
+Contributors should recreate their check environment with `bash scripts/ci.sh --install` after updating the lock and exported requirements together. Container builders require supported prebuilt dependency wheels. These maintenance changes do not introduce a configuration or data migration. Retain local configuration and credentials when using the documented update procedure. Validate the candidate on an isolated system before production use; automated checks do not establish hardware acceptance.
 
 ### Security
 

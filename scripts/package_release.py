@@ -146,7 +146,15 @@ def build_distributions(
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         subprocess.run(
-            [sys.executable, "-m", "build", "--outdir", str(output), str(project)],
+            [
+                sys.executable,
+                "-m",
+                "build",
+                "--no-isolation",
+                "--outdir",
+                str(output),
+                str(project),
+            ],
             check=True,
         )
     distributions = sorted(output.glob("*.whl")) + sorted(output.glob("*.tar.gz"))

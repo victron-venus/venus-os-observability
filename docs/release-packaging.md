@@ -41,3 +41,6 @@ The release policy lists project-specific limits.
 
 Build the matching OCI artifact locally with `bash scripts/package-container.sh`
 after Python/native packaging. Docker Buildx and ARM64 emulation must be available.
+
+Dependency updates and reproducible build setup are described in
+[Python dependency locks](dependency-locks.md).
