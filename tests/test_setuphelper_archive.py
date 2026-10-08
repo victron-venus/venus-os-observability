@@ -48,6 +48,8 @@ def make_archive(path: Path, changed: str = "", mode: int = 0o755) -> None:
             if name == changed and changed in {
                 "src/venus_observability/metrics.py",
                 "src/venus_observability/dbus_owners.py",
+                "src/venus_observability/otlp.py",
+                "docs/otlp-transport.md",
             }:
                 continue
             data = (REPO / name).read_bytes()
@@ -216,6 +218,8 @@ def test_unsupported_setuphelper_versions_are_rejected(version: str) -> None:
     [
         ("src/venus_observability/metrics.py", 0o755, "Missing runtime files"),
         ("src/venus_observability/dbus_owners.py", 0o755, "Missing runtime files"),
+        ("src/venus_observability/otlp.py", 0o755, "Missing runtime files"),
+        ("docs/otlp-transport.md", 0o755, "Missing runtime files"),
         ("", 0o644, "Missing executable mode"),
         ("version", 0o755, "versions differ"),
         ("../private", 0o755, "Unsafe archive path"),

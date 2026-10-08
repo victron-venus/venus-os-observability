@@ -138,9 +138,16 @@ internet. Repeat the bootstrap after firmware changes the Python ABI.
 
 Tracing is optional: install the `tempo` extra from a matching offline bundle
 and configure `OTEL_EXPORTER_OTLP_ENDPOINT` only when the device has headroom.
-Without it, the sampler drops spans and avoids D-Bus payload serialization;
+Without an endpoint, the sampler drops spans and avoids D-Bus payload serialization;
 metrics remain active. D-Bus string subclasses are converted to native strings
 before recorded span attributes are validated.
+
+Local plaintext gRPC remains the default. For HTTPS collectors, select
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` and configure the collector's
+OTLP/HTTP endpoint; HTTPS gRPC is rejected because its native TLS backend does
+not enforce the required minimum certificate key strengths. See
+[OTLP transport and migration](docs/otlp-transport.md) before changing an
+existing deployment. No protocol, port or TLS configuration is changed silently.
 
 Metric labels use stable Venus service names. The exporter subscribes to
 `NameOwnerChanged` before asynchronous startup discovery, removes superseded

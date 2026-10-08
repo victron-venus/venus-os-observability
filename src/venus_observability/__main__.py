@@ -48,13 +48,21 @@ def setup_telemetry(
 
     Args:
         service_name: Service name for traces/metrics
-        otlp_endpoint: OTLP gRPC endpoint (e.g., http://tempo:4317). If None, skips trace export.
+        otlp_endpoint: OTLP endpoint. Protocol is selected explicitly through the OTLP
+            environment variables; defaults to local plaintext gRPC. None skips export.
         prometheus_port: Port for Prometheus metrics HTTP server
 
     Returns:
         Tuple of (TracerProvider, MeterProvider)
     """
     global _correlation_propagator
+
+    otlp_exporter = None
+    if otlp_endpoint:
+        from .otlp import create_exporter
+
+        # Reject invalid transport configuration before registering global providers.
+        otlp_exporter = create_exporter(otlp_endpoint)
 
     # Resource with service info
     resource = Resource.create({SERVICE_NAME: service_name})
@@ -65,12 +73,9 @@ def setup_telemetry(
     )
     trace.set_tracer_provider(tracer_provider)
 
-    if otlp_endpoint:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-
-        otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+    if otlp_exporter is not None:
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-        logger.info("OTLP trace exporter configured: %s", otlp_endpoint)
+        logger.info("OTLP trace exporter configured")
 
     # Metrics - Prometheus
     prometheus_reader = PrometheusMetricReader()
@@ -255,7 +260,8 @@ def main() -> None:
     dbus_addr = os.getenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/var/run/dbus/system_bus_socket")
     service = ObservabilityService(
         dbus_address=dbus_addr,
-        otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        otlp_endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
         prometheus_port=int(os.getenv("PROMETHEUS_PORT", "9090")),
         service_name=os.getenv("OTEL_SERVICE_NAME", "venus-os-observability"),
     )

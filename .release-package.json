@@ -12,6 +12,7 @@
     "uv.lock",
     "config.example.yaml",
     "README.md",
+    "docs/otlp-transport.md",
     "LICENSE",
     ".python-version",
     "docs/alert-relay-tls.md"

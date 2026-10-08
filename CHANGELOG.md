@@ -10,6 +10,7 @@ Exports D-Bus/MQTT observations to OpenTelemetry and Prometheus. The existing RE
 
 ### Maintenance
 
+- Add explicitly selected HTTPS OTLP/HTTP export with certificate-key minimums, verified names and CAs, and no redirects. Reject HTTPS gRPC with a migration instruction; retain explicit local plaintext gRPC.
 - Verify hashes for locked CI, security-tool, release-build and container Python dependencies; build local packages without resolving an isolated backend.
 - Preserve the alert relay’s Paho MQTT 1.6.1 API while verifying its source archive and building it with a locked backend in a separate container stage.
 - Separate metric path predicates from publication while preserving gauge labels, unavailable-value handling and service invalidation.
@@ -20,13 +21,13 @@ Exports D-Bus/MQTT observations to OpenTelemetry and Prometheus. The existing RE
 
 Alert relay users must install the additional hash-locked TLS dependencies or rebuild the relay image. Reissue certificates below the documented key minima. HTTPS-proxy URLs are rejected; configure a direct route, NO_PROXY or an explicit HTTP CONNECT proxy with its documented metadata exposure. See `docs/alert-relay-tls.md`.
 
-Contributors should recreate their check environment with `bash scripts/ci.sh --install` after updating the lock and exported requirements together. Container builders require supported prebuilt dependency wheels. These maintenance changes do not introduce a configuration or data migration. Retain local configuration and credentials when using the documented update procedure. Validate the candidate on an isolated system before production use; automated checks do not establish hardware acceptance.
+Contributors should recreate their check environment with `bash scripts/ci.sh --install` after updating the lock and exported requirements together. Container builders require supported prebuilt dependency wheels. Existing HTTPS gRPC exporters must migrate to the collector's explicitly configured HTTPS OTLP/HTTP listener and select `http/protobuf`; see [the transport migration guide](docs/otlp-transport.md). Local plaintext gRPC configuration is unchanged. Retain local configuration and credentials when using the documented update procedure. Validate the candidate on an isolated system before production use; automated checks do not establish hardware acceptance.
 
 ### Security
 
 SMTP and Telegram now check exact keys on the verified connection before authentication or request data. This fixes acceptance of RSA-2047 roots under the tested OpenSSL security level. Telegram also refuses HTTP redirects and unprotected HTTPS-proxy handling.
 
-Private vulnerability reporting and response policy are documented in SECURITY.md. This maintenance update strengthens release evidence and review instructions; it does not replace deployment authentication, network isolation or independent equipment safeguards. No new project CVE is announced by these changes.
+Private vulnerability reporting and response policy are documented in SECURITY.md. The previous gRPC TLS backend accepted trusted chains containing RSA keys below 2048 bits on the tested runtime. HTTPS export now uses OpenSSL security level 2 or higher plus exact key-length checks on the same verified connection, and rejects redirects before sending data to another endpoint. This does not replace deployment authentication, network isolation or independent equipment safeguards. No new project CVE is announced by these changes.
 
 ## 0.1.5 - 2026-09-12
 
