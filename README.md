@@ -362,6 +362,14 @@ SMTP_TO=<recipient@example.com>
 
 `SMTP_HOST` or `SMTP_TO` empty ⇒ email channel disabled, MQTT-only.
 
+Email requires STARTTLS and a certificate valid for `SMTP_HOST`, signed by a
+trusted CA. The bridge verifies the server before sending SMTP credentials or
+the alert. A missing STARTTLS extension, untrusted certificate or hostname
+mismatch fails this delivery attempt and is logged; it never falls back to
+plaintext SMTP. If using a private CA, mount its CA bundle and set
+`SSL_CERT_FILE` to that file inside the container. Existing relays with invalid
+certificates must be corrected or given their proper CA trust before upgrading.
+
 Deploy/update the container:
 
 ```bash

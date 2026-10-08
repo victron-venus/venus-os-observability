@@ -21,6 +21,10 @@ Contributions must be compatible with [LICENSE](LICENSE). Preserve third-party c
 
 Install local test dependencies with `bash scripts/ci.sh --install`, then run `bash scripts/ci.sh`. The script is the authoritative local entry point for the checks and tool versions; inspect it and the checked-in dependency manifests before installing prerequisites. Use an isolated development environment.
 
+The SMTP regression tests also require the `openssl` command. They generate
+disposable certificates and connect only to a temporary loopback SMTP server;
+no real email credentials or external mail server are needed.
+
 Automated tests use mocks or controlled fixtures where available. A passing unit test does not establish hardware safety. Describe any physical-device test separately, including firmware, configuration and expected rollback. Never run installation, deployment, Terraform apply or actuator commands merely to validate a documentation change.
 
 ## Source and interfaces
