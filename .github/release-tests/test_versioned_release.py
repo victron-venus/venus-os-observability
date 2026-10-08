@@ -583,11 +583,13 @@ class ReceiptTests(unittest.TestCase):
         staged = self.staged()
         with self.assertRaisesRegex(ValueError, "does not match"):
             receipt.verify_receipts(self.assets, self.plan, staged)
+        self.assertCountEqual(staged, self.staged())
         (self.assets / "app.bin").write_bytes(original)
         (self.assets / "uncovered.bin").write_bytes(b"missing evidence")
         staged = self.staged()
         with self.assertRaisesRegex(ValueError, "payloads lack version input evidence"):
             receipt.verify_receipts(self.assets, self.plan, staged)
+        self.assertCountEqual(staged, self.staged())
 
     def test_other_plan_or_partial_input_inventory_is_rejected(self):
         self.create()
@@ -595,11 +597,13 @@ class ReceiptTests(unittest.TestCase):
         staged = self.staged()
         with self.assertRaisesRegex(ValueError, "different release plan"):
             receipt.verify_receipts(self.assets, other, staged)
+        self.assertCountEqual(staged, self.staged())
         altered = copy.deepcopy(self.policy)
         altered["versioning"]["files"].append({"path": "missing", "format": "text"})
         staged = self.staged()
         with self.assertRaisesRegex(ValueError, "every declared"):
             receipt.verify_receipts(self.assets, self.plan, staged, altered)
+        self.assertCountEqual(staged, self.staged())
 
     def test_symlink_or_empty_assets_never_get_receipt(self):
         (self.assets / "app.bin").unlink()
