@@ -77,7 +77,7 @@ def test_update_preserves_supervisors_and_can_run_twice(
         assert all(sentinel.read_text() == "preserve this local state" for sentinel in sentinels)
         assert (package / "service/venus-os-observability/run").is_file()
         assert (package / "version").read_text() == "0.1.4\n"
-    hook = (data / "rc.local").read_text()
-    assert "echo keep custom boot setup" in hook
-    assert hook.count("# === venus-os-observability service persistence ===") == 1
-    assert hook.index("# === end venus-os-observability ===") < hook.index("exit 0")
+        hook = (data / "rc.local").read_text()
+        assert "echo keep custom boot setup" in hook
+        assert hook.count("# === venus-os-observability service persistence ===") == 1
+        assert hook.index("# === end venus-os-observability ===") < hook.index("exit 0")
