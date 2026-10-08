@@ -178,6 +178,7 @@ class ConsumerVersioningTests(unittest.TestCase):
             version_receipt.verify_receipts(
                 output, plan, inventory, self.policy
             )
+        self.assertEqual(self.inventory(output), inventory)
 
     def test_staging_rejects_dropped_input_evidence(self):
         self.freeze()
