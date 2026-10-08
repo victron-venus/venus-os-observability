@@ -18,7 +18,7 @@ runtime environment and Ubuntu's matching Python/D-Bus/GI packages. Container
 base digests remain pinned; Ubuntu package installation still follows its
 security-update repositories.
 
-To update dependencies with uv 0.12.7, review the `uv.lock` diff and regenerate
+To update dependencies with uv 0.12.18, review the `uv.lock` diff and regenerate
 all four exports together:
 
 ```sh
