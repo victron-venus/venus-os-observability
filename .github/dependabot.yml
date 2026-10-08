@@ -4,11 +4,21 @@ updates:
     directory: /
     schedule:
       interval: daily
+    groups:
+      # Keep CodeQL components and shared workflow pins in one reviewed update.
+      ci-workflows:
+        applies-to: version-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: daily
+    # Ubuntu 26.04 supplies Python 3.14; this project requires Python 3.12/native bindings.
+    ignore:
+      - dependency-name: ubuntu
+        versions: ["26.04"]
 
   - package-ecosystem: docker
     directory: /alert-mqtt-bridge
