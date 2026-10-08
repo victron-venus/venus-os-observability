@@ -70,9 +70,11 @@ def verified_context() -> ssl.SSLContext:
     context = ssl.create_default_context()
     context.minimum_version = max(context.minimum_version, ssl.TLSVersion.TLSv1_2)
     if context.security_level < 2:
-        context.set_ciphers("DEFAULT:@SECLEVEL=2")
+        ciphers = ":".join(
+            cipher["name"] for cipher in context.get_ciphers() if cipher["protocol"] != "TLSv1.3"
+        )
+        context.set_ciphers(f"{ciphers}:@SECLEVEL=2")
     context.sslsocket_class = _VerifiedSocket
-    context.set_alpn_protocols(["http/1.1"])
     return context
 
 
@@ -106,7 +108,9 @@ def open_https(url: str, *, data: bytes, timeout: float) -> Any:
     """Keep urllib routing/redirect semantics, excluding unprotected transports."""
     if urllib.parse.urlsplit(url).scheme != "https":
         raise urllib.error.URLError("Alert delivery requires an HTTPS URL")
+    context = verified_context()
+    context.set_alpn_protocols(["http/1.1"])
     opener = urllib.request.build_opener(
-        _HTTPProxyOnly(), _HTTPSRedirects(), urllib.request.HTTPSHandler(context=verified_context())
+        _HTTPProxyOnly(), _HTTPSRedirects(), urllib.request.HTTPSHandler(context=context)
     )
     return opener.open(url, data=data, timeout=timeout)

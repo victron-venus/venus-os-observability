@@ -147,6 +147,14 @@ def peer(
     context.set_ciphers("DEFAULT:@SECLEVEL=0")  # Only the synthetic peer permits weak fixtures.
     context.load_cert_chain(chain[0], chain[1])
     result: dict[str, Any] = {"commands": [], "application": b"", "connect": b""}
+    context.set_alpn_protocols(["http/1.1"])
+
+    class ObservedSocket(ssl.SSLSocket):
+        def do_handshake(self, block: bool = False) -> None:
+            super().do_handshake(block)
+            result["alpn"] = self.selected_alpn_protocol()
+
+    context.sslsocket_class = ObservedSocket
     failures = []
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -255,6 +263,8 @@ def test_relay_checks_chain_before_credentials(
         assert (b"DATA" in observed["commands"]) is accepted
     else:
         assert bool(observed["application"]) is accepted
+    if accepted:
+        assert observed["alpn"] == (None if channel == "smtp" else "http/1.1")
     assert "synthetic-password" not in caplog.text
     assert "synthetic-token" not in caplog.text
 
@@ -360,3 +370,17 @@ def test_stricter_context_settings_are_preserved(
     assert tls_policy.verified_context() is context
     assert context.minimum_version == ssl.TLSVersion.TLSv1_3
     assert context.security_level == 3
+
+
+def test_raising_tls_level_preserves_cipher_restrictions(
+    relay: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tls_policy
+
+    context = ssl.create_default_context()
+    context.set_ciphers("ECDHE-RSA-AES128-GCM-SHA256:@SECLEVEL=1")
+    expected = context.get_ciphers()
+    monkeypatch.setattr(ssl, "create_default_context", lambda: context)
+    assert tls_policy.verified_context() is context
+    assert context.security_level == 2
+    assert context.get_ciphers() == expected
