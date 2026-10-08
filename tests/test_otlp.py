@@ -70,6 +70,8 @@ def test_existing_plaintext_grpc_is_preserved() -> None:
         (None, "", "grpc"),
         ("", "", "grpc"),
         (" http/protobuf ", "grpc", "http/protobuf"),
+        ("   ", "http/protobuf", "http/protobuf"),
+        (None, "\t ", "grpc"),
     ],
 )
 def test_protocol_empty_values_fall_back(
