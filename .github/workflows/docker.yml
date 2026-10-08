@@ -20,11 +20,15 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
           tags: ghcr.io/victron-venus/venus-os-observability:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Build and smoke test the alert bridge image
+        run: |
+          docker build --tag venus-alert-bridge:ci alert-mqtt-bridge
+          docker run --rm --network none --entrypoint python venus-alert-bridge:ci -c "import relay"
     timeout-minutes: 30
