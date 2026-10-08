@@ -20,6 +20,7 @@ REQUIRED = {
     "setup.py",
     "config.example.yaml",
     "README.md",
+    "docs/alert-relay-tls.md",
     "LICENSE",
     "src/venus_observability/__init__.py",
     "src/venus_observability/__main__.py",

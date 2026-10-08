@@ -13,7 +13,8 @@
     "config.example.yaml",
     "README.md",
     "LICENSE",
-    ".python-version"
+    ".python-version",
+    "docs/alert-relay-tls.md"
   ],
   "wheel": true
 }

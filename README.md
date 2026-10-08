@@ -430,3 +430,6 @@ MIT
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports, development checks and pull requests,
 [SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment trust boundaries,
 and the [OpenSSF evidence index](docs/openssf-evidence.md) for assessment references and remaining verification.
+
+The alert relay verifies exact certificate key sizes for SMTP STARTTLS and Telegram HTTPS.
+See [alert relay TLS policy](docs/alert-relay-tls.md) for trusted CA, proxy and migration requirements.

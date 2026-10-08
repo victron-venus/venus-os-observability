@@ -30,5 +30,5 @@ jobs:
       - name: Build and smoke test the alert bridge image
         run: |
           docker build --tag venus-alert-bridge:ci alert-mqtt-bridge
-          docker run --rm --network none --entrypoint python venus-alert-bridge:ci -c "import relay"
+          docker run --rm --network none --entrypoint python venus-alert-bridge:ci -c "import relay; from cryptography import x509; relay.verified_context()"
     timeout-minutes: 30

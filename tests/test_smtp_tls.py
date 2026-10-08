@@ -180,6 +180,7 @@ def test_authentication_requires_verified_tls(
     accepted: bool,
 ) -> None:
     path = Path(__file__).resolve().parents[1] / "alert-mqtt-bridge" / "relay.py"
+    monkeypatch.syspath_prepend(str(path.parent))
     spec = importlib.util.spec_from_file_location("smtp_bridge", path)
     assert spec is not None and spec.loader is not None
     bridge: Any = importlib.util.module_from_spec(spec)
