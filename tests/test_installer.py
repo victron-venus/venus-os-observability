@@ -10,7 +10,10 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.parametrize("in_place", [True, False])
-def test_update_preserves_supervisors_and_can_run_twice(tmp_path: Path, in_place: bool) -> None:
+@pytest.mark.parametrize("initial_hook", ["clean", "duplicate", "unterminated"])
+def test_update_preserves_supervisors_and_can_run_twice(
+    tmp_path: Path, in_place: bool, initial_hook: str
+) -> None:
     """In-place and archive installs preserve service/logger inodes and local files."""
     # The separate filesystem sentinels make preservation failures identifiable.
     # pylint: disable=too-many-locals
@@ -21,7 +24,18 @@ def test_update_preserves_supervisors_and_can_run_twice(tmp_path: Path, in_place
     source_dir = package if in_place else tmp_path / "release"
     source_dir.mkdir(exist_ok=True)
     services.mkdir()
-    (data / "rc.local").write_text("#!/bin/sh\nexit 0\n")
+    old_hook = (
+        "# === venus-os-observability service persistence ===\n"
+        "echo old hook\n"
+        "# === end venus-os-observability ===\n"
+    )
+    initial = "#!/bin/sh\necho keep custom boot setup\n"
+    if initial_hook == "duplicate":
+        initial += old_hook * 2
+    elif initial_hook == "unterminated":
+        initial += old_hook.split("# === end", 1)[0]
+    initial += "exit 0\n"
+    (data / "rc.local").write_text(initial)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for command in ("svc", "sleep", "python3"):
@@ -52,12 +66,18 @@ def test_update_preserves_supervisors_and_can_run_twice(tmp_path: Path, in_place
         sentinel.write_text("preserve this local state")
     (services / "venus-os-observability").symlink_to(supervisor.parent)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    if initial_hook == "unterminated":
+        result = subprocess.run(["sh", "update.sh", str(package)], cwd=source_dir, env=env)
+        assert result.returncode != 0
+        assert (data / "rc.local").read_text() == initial
+        return
     for _ in range(2):
         subprocess.run(["sh", "update.sh", str(package)], cwd=source_dir, env=env, check=True)
         assert all(path.stat().st_ino == inode for path, inode in inodes.items())
         assert all(sentinel.read_text() == "preserve this local state" for sentinel in sentinels)
         assert (package / "service/venus-os-observability/run").is_file()
         assert (package / "version").read_text() == "0.1.4\n"
-    hook = (data / "rc.local").read_text()
-    assert hook.count("# === venus-os-observability service persistence ===") == 1
-    assert hook.index("# === end venus-os-observability ===") < hook.index("exit 0")
+        hook = (data / "rc.local").read_text()
+        assert "echo keep custom boot setup" in hook
+        assert hook.count("# === venus-os-observability service persistence ===") == 1
+        assert hook.index("# === end venus-os-observability ===") < hook.index("exit 0")

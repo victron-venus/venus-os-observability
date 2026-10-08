@@ -1,5 +1,13 @@
 {
-  "validation_workflows": ["ci.yml", "lint.yml", "test.yml", "docker.yml", "release-security.yml", "codeql.yml", "dependency-review.yml"],
+  "validation_workflows": [
+    "ci.yml",
+    "lint.yml",
+    "test.yml",
+    "docker.yml",
+    "release-security.yml",
+    "codeql.yml",
+    "dependency-review.yml"
+  ],
   "artifact_pattern": "release-assets*",
   "local_checks": [
     "bash scripts/ci.sh",
@@ -95,5 +103,7 @@
     ],
     "toolkit_revision": "fca833a9da6b49116444ffd7ac6739e08f9cbc61"
   },
-  "single_entry_ci": true
+  "single_entry_ci": true,
+  "release_notes": "CHANGELOG.md",
+  "toolkit_revision": "991a03541e8f7dbee83e91cada11e6c70f6eb8cd"
 }
