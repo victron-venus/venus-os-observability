@@ -1,0 +1,3 @@
+# Source archive from https://pypi.org/pypi/paho-mqtt/1.6.1/json
+paho-mqtt==1.6.1 \
+    --hash=sha256:2a8291c81623aec00372b5a85558a372c747cbca8e9934dfe218638b8eefc26f

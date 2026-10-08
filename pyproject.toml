@@ -101,3 +101,8 @@ omit = ["tests/*", "*/conftest.py"]
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "def __repr__", "raise AssertionError", "raise NotImplementedError"]
 show_missing = true
+
+[dependency-groups]
+# Lock the complete package-building and security-tool environments.
+build = ["build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0", "twine==6.1.0"]
+security = ["bandit==1.9.2"]
