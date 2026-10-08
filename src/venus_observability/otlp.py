@@ -198,9 +198,11 @@ class _HTTPSOnlySession(requests.Session):
 
 def create_exporter(endpoint: str) -> "SpanExporter":
     """Select a transport without silently translating protocol, port or URL."""
-    protocol = os.getenv(
-        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-    )
+    protocol = (
+        os.getenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+        or os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+        or "grpc"
+    ).strip()
     trace_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
     selected = trace_endpoint or endpoint
     parsed = urlsplit(selected)

@@ -64,6 +64,35 @@ def test_existing_plaintext_grpc_is_preserved() -> None:
 
 
 @pytest.mark.parametrize(
+    ("traces", "generic", "expected"),
+    [
+        ("", "http/protobuf", "http/protobuf"),
+        (None, "", "grpc"),
+        ("", "", "grpc"),
+        (" http/protobuf ", "grpc", "http/protobuf"),
+    ],
+)
+def test_protocol_empty_values_fall_back(
+    monkeypatch: pytest.MonkeyPatch, traces: str | None, generic: str, expected: str
+) -> None:
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", generic)
+    if traces is not None:
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", traces)
+    if expected == "grpc":
+        with patch(
+            "opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"
+        ) as exporter:
+            create_exporter("http://tempo:4317")
+        exporter.assert_called_once_with(endpoint="http://tempo:4317", insecure=True)
+    else:
+        http_exporter: Any = create_exporter("https://localhost:4318")
+        try:
+            assert http_exporter._endpoint == "https://localhost:4318/v1/traces"
+        finally:
+            http_exporter.shutdown()
+
+
+@pytest.mark.parametrize(
     "endpoint",
     ["http://localhost:4318", "https:///", "https://user:password@localhost", "https://x/#y"],
 )
