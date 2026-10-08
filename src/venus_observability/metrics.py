@@ -213,22 +213,24 @@ class VictronMetrics:
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
                 self._set_gauge(self.cell_temperature, value, attrs, service)
-        elif path_lower in ("/dc/pv/power", "/yield/power") or (
-            path_lower == "/ac/power" and ".pvinverter." in service
-        ):
+        elif _is_pv_power(service, path_lower):
             self._set_gauge(self.pv_power, value, attrs, service)
         elif path_lower == "/ac/grid/power" or self._is_phase_power(path_lower, "grid"):
             attrs = dict(attrs, phase=self._phase_from_path(path))
             self._set_gauge(self.grid_power, value, attrs, service)
-        elif (
-            path_lower == "/ac/loads/power"
-            or self._is_phase_power(path_lower, "loads")
-            or (path_lower.startswith("/ac/consumption/") and path_lower.endswith(POWER_SUFFIX))
-        ):
+        elif self._is_loads_power(path_lower):
             attrs = dict(attrs, phase=self._phase_from_path(path))
             self._set_gauge(self.ac_loads, value, attrs, service)
         elif path_lower == "/state":
             self._set_gauge(self.inverter_state, value, attrs, service)
+
+    def _is_loads_power(self, path_lower: str) -> bool:
+        """Match consumption paths while retaining overridable phase matching."""
+        return (
+            path_lower == "/ac/loads/power"
+            or self._is_phase_power(path_lower, "loads")
+            or (path_lower.startswith("/ac/consumption/") and path_lower.endswith(POWER_SUFFIX))
+        )
 
     @staticmethod
     def _phase_from_path(path: str) -> str:
@@ -300,6 +302,27 @@ def _is_phase_power(path_lower: str, section: str) -> bool:
     return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith(POWER_SUFFIX)
 
 
+def _is_pv_power(service: str, path_lower: str) -> bool:
+    """Recognize aggregate, charger and PV-inverter power paths."""
+    return path_lower in ("/dc/pv/power", "/yield/power") or (
+        path_lower == "/ac/power" and ".pvinverter." in service
+    )
+
+
+def _is_grid_power(path_lower: str) -> bool:
+    """Recognize aggregate and per-phase grid power paths."""
+    return path_lower == "/ac/grid/power" or _is_phase_power(path_lower, "grid")
+
+
+def _is_loads_power(path_lower: str) -> bool:
+    """Recognize aggregate and per-phase AC consumption paths."""
+    return (
+        path_lower in ("/ac/loads/power",)
+        or _is_phase_power(path_lower, "loads")
+        or (path_lower.startswith("/ac/consumption/") and path_lower.endswith(POWER_SUFFIX))
+    )
+
+
 def update_prometheus_from_dbus(
     service: str, path: str, value: Any, serial: str | None = None
 ) -> None:
@@ -313,22 +336,16 @@ def update_prometheus_from_dbus(
         _set_prometheus_gauge(service, battery_soc, value, serial=serial)
     elif path_lower == "/dc/0/power":
         _set_prometheus_gauge(service, battery_power, value, serial=serial)
-    elif path_lower in ("/dc/pv/power", "/yield/power") or (
-        path_lower == "/ac/power" and ".pvinverter." in service
-    ):
+    elif _is_pv_power(service, path_lower):
         # system aggregates PV as /Dc/Pv/Power; solarcharger emits /Yield/Power;
         # dbus-pvinverter services (dbus-tasmota-pv) report PV as /Ac/Power
         _set_prometheus_gauge(service, pv_power, value, serial=serial)
-    elif path_lower == "/ac/grid/power" or _is_phase_power(path_lower, "grid"):
+    elif _is_grid_power(path_lower):
         # Venus OS emits per-phase paths (/Ac/Grid/L1/Power); aggregate has no phase
         _set_prometheus_gauge(
             service, grid_power, value, serial=serial, phase=_phase_from_path(path)
         )
-    elif (
-        path_lower in ("/ac/loads/power",)
-        or _is_phase_power(path_lower, "loads")
-        or (path_lower.startswith("/ac/consumption/") and path_lower.endswith(POWER_SUFFIX))
-    ):
+    elif _is_loads_power(path_lower):
         # Per-phase consumption (/Ac/Consumption/L1/Power) or legacy /Ac/Loads/*
         _set_prometheus_gauge(service, ac_loads, value, serial=serial, phase=_phase_from_path(path))
     elif path_lower == "/state":
