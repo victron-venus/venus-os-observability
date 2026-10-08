@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import smtplib
+import ssl
 import threading
 import time
 import urllib.error
@@ -80,7 +81,7 @@ def send_email(name: str, level: str, summary: str, value: str) -> None:
     msg.set_content((f"{summary}\n\n{value}" if value else summary) + "\n")
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
-            s.starttls()
+            s.starttls(context=ssl.create_default_context())
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
         log.info("Email sent: %s", name)
