@@ -3,6 +3,8 @@
 import os
 import socket
 import ssl
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -66,14 +68,51 @@ def _verify_key_lengths(sock: object) -> None:
         raise ssl.SSLError("OTLP HTTPS certificate key is below the supported security minimum")
 
 
+def _reject_key_password() -> str:
+    raise ssl.SSLError("OTLP HTTPS requires an unencrypted client private key")
+
+
+def _client_tls_context(cert_file: str, key_file: str | None) -> ssl.SSLContext:
+    # Capture once, validate, then load precisely those bytes. Never reopen the
+    # operator's paths between validation and SSLContext.load_cert_chain.
+    try:
+        certificate_bytes = Path(cert_file).read_bytes()
+        key_bytes = Path(key_file).read_bytes() if key_file and key_file != cert_file else None
+        certificates = x509.load_pem_x509_certificates(certificate_bytes)
+        if not certificates or not all(_key_is_strong(cert) for cert in certificates):
+            raise ssl.SSLError("Client certificate key is below the security minimum")
+        context = _tls_context()
+        with tempfile.TemporaryDirectory(prefix="otlp-client-tls-") as directory:
+            # NamedTemporaryFile creates each file with owner-only permissions.
+            with tempfile.NamedTemporaryFile(dir=directory, delete=False) as certificate:
+                certificate.write(certificate_bytes)
+                certificate_path = certificate.name
+            key_path = None
+            if key_bytes is not None:
+                with tempfile.NamedTemporaryFile(dir=directory, delete=False) as key:
+                    key.write(key_bytes)
+                    key_path = key.name
+            context.load_cert_chain(certificate_path, key_path, password=_reject_key_password)
+        return context
+    except (OSError, ValueError):
+        raise ssl.SSLError("OTLP HTTPS client certificate configuration is invalid") from None
+
+
 class _VerifiedConnection(HTTPSConnection):
     def connect(self) -> None:
+        certificate, key, context = self.cert_file, self.key_file, self.ssl_context
         try:
+            if certificate:
+                self.ssl_context = _client_tls_context(certificate, key)
+                # urllib3 must use the already loaded pair, not the original paths.
+                self.cert_file = self.key_file = None
             super().connect()
             _verify_key_lengths(self.sock)
         except Exception:
             self.close()
             raise
+        finally:
+            self.cert_file, self.key_file, self.ssl_context = certificate, key, context
 
     def _connect_tls_proxy(self, hostname: str, sock: socket.socket) -> ssl.SSLSocket:
         # Match Requests' selected CA roots without preloading unrelated system roots.

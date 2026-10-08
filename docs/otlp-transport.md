@@ -69,6 +69,14 @@ Standard OTLP/HTTP environment settings remain available:
   configuration applies when neither is supplied; verification cannot be disabled.
 - `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` and `OTEL_EXPORTER_OTLP_CLIENT_KEY`
   configure mutual TLS, with their `TRACES_` equivalents taking precedence.
+  A combined certificate/key PEM file is also supported. Every supplied client
+  certificate must meet the same exact key-size policy. The adapter captures the
+  files once, validates the certificate bytes and loads that snapshot into a
+  fresh TLS context through private temporary files, which it then removes.
+  Original files are never modified. OpenSSL checks that the key matches;
+  encrypted private keys are rejected without prompting, as required by Requests.
+  This covers the supplied client chain, not roots omitted from that file or
+  the remote collector's client-authentication policy.
 - `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TIMEOUT` and
   `OTEL_EXPORTER_OTLP_COMPRESSION` retain their upstream trace-specific precedence.
 

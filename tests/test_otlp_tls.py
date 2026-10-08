@@ -25,7 +25,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from venus_observability.otlp import _tls_context, _verify_key_lengths, create_exporter
+from venus_observability.otlp import (
+    _client_tls_context,
+    _tls_context,
+    _VerifiedConnection,
+    _verify_key_lengths,
+    create_exporter,
+)
 
 Key = rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey
 CHAIN_CASES = (
@@ -161,6 +167,8 @@ def peer(
                     raw.settimeout(5)
                     with context.wrap_socket(raw, server_side=True) as connection:
                         result["tls"] = connection.version()
+                        if client_auth:
+                            result["client_certificate"] = connection.getpeercert(binary_form=True)
                         data = b""
                         while b"\r\n\r\n" not in data:
                             part = connection.recv(8192)
@@ -296,6 +304,220 @@ def test_standard_client_certificate_configuration_is_preserved(
         finally:
             exporter.shutdown()
     assert observed["application_bytes"].endswith(b"mutual-tls")
+
+
+@pytest.fixture(scope="module")
+def client_chains(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    directory = tmp_path_factory.mktemp("otlp-client-keys")
+    ca_key = rsa.generate_private_key(65537, 2048)
+    ca = certificate(ca_key, "client-fixture-root", None, ca_key, ca=True)
+    ca_path = directory / "ca.pem"
+    ca_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+    result: dict[str, Any] = {"ca": ca_path, "certificates": {}}
+    for label, bits in (("server", 2048), ("strong", 2048), ("weak", 2047)):
+        key = rsa.generate_private_key(65537, bits)
+        cert = certificate(key, label, ca, ca_key, ca=False)
+        cert_path, key_path = directory / f"{label}.pem", directory / f"{label}.key"
+        cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+        key_path.write_bytes(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        )
+        result[label] = cert_path, key_path, ca_path
+        result["certificates"][label] = cert
+    return result
+
+
+def configure_client_files(
+    client_chains: dict[str, Any],
+    case: str,
+    combined: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path | None]:
+    cert, key, ca = client_chains[case]
+    certificate_path = tmp_path / "client.pem"
+    key_path: Path | None
+    certificate_path.write_bytes(cert.read_bytes() + (key.read_bytes() if combined else b""))
+    if combined:
+        key_path = None
+    else:
+        key_path = tmp_path / "client.key"
+        key_path.write_bytes(key.read_bytes())
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_CLIENT_KEY", str(key_path))
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", str(ca))
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE", str(certificate_path))
+    return certificate_path, key_path
+
+
+@pytest.mark.parametrize("combined", [False, True])
+@pytest.mark.parametrize("version", [ssl.TLSVersion.TLSv1_2, ssl.TLSVersion.TLSv1_3])
+def test_exact_client_key_boundary_before_http(
+    client_chains: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    combined: bool,
+    version: ssl.TLSVersion,
+) -> None:
+    configure_client_files(client_chains, "strong", combined, tmp_path, monkeypatch)
+    with peer(client_chains["server"], version, client_auth=True) as (port, observed):
+        exporter: Any = create_exporter(f"https://localhost:{port}")
+        try:
+            response = exporter._export(b"strong-client-span")
+            assert response.status_code == 200
+            response.close()
+        finally:
+            exporter.shutdown()
+    assert observed["application_bytes"].endswith(b"strong-client-span")
+    assert observed["client_certificate"] == client_chains["certificates"]["strong"].public_bytes(
+        serialization.Encoding.DER
+    )
+    cert, key = configure_client_files(client_chains, "weak", combined, tmp_path, monkeypatch)
+    original_cert = cert.read_bytes()
+    original_key = key.read_bytes() if key else None
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(0.1)
+        exporter = create_exporter(f"https://localhost:{listener.getsockname()[1]}")
+        try:
+            with pytest.raises(requests.exceptions.SSLError):
+                exporter._export(b"must-not-leave")
+        finally:
+            exporter.shutdown()
+        with pytest.raises(TimeoutError):
+            listener.accept()
+    assert cert.read_bytes() == original_cert
+    assert (key.read_bytes() if key else None) == original_key
+
+
+@pytest.mark.parametrize("combined", [False, True])
+def test_client_snapshot_survives_original_replacement_and_is_cleaned(
+    client_chains: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    combined: bool,
+) -> None:
+    cert, key = configure_client_files(client_chains, "strong", combined, tmp_path, monkeypatch)
+    snapshots: list[Path] = []
+    original_load = ssl.SSLContext.load_cert_chain
+
+    def replace_original(
+        context: ssl.SSLContext, certfile: str, keyfile: str | None = None, **kwargs: Any
+    ) -> None:
+        cert.write_bytes(client_chains["weak"][0].read_bytes())
+        if combined:
+            cert.write_bytes(cert.read_bytes() + client_chains["weak"][1].read_bytes())
+        else:
+            assert key is not None
+            key.write_bytes(client_chains["weak"][1].read_bytes())
+        snapshots.append(Path(certfile))
+        assert Path(certfile).stat().st_mode & 0o777 == 0o600
+        if keyfile:
+            snapshots.append(Path(keyfile))
+            assert Path(keyfile).stat().st_mode & 0o777 == 0o600
+        original_load(context, certfile, keyfile, **kwargs)
+
+    with peer(client_chains["server"], ssl.TLSVersion.TLSv1_3, client_auth=True) as (
+        port,
+        observed,
+    ):
+        exporter: Any = create_exporter(f"https://localhost:{port}")
+        try:
+            with patch.object(ssl.SSLContext, "load_cert_chain", replace_original):
+                response = exporter._export(b"snapshot-client-span")
+                response.close()
+        finally:
+            exporter.shutdown()
+    assert observed["client_certificate"] == client_chains["certificates"]["strong"].public_bytes(
+        serialization.Encoding.DER
+    )
+    assert snapshots and all(not item.exists() and not item.parent.exists() for item in snapshots)
+
+
+def test_client_snapshot_cleanup_on_load_failure(
+    client_chains: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cert, key = configure_client_files(client_chains, "strong", False, tmp_path, monkeypatch)
+    assert key is not None
+    originals = cert.read_bytes(), key.read_bytes()
+    snapshots: list[Path] = []
+
+    def fail_load(_context: ssl.SSLContext, certfile: str, keyfile: str, **_kwargs: Any) -> None:
+        snapshots.extend((Path(certfile), Path(keyfile)))
+        raise ssl.SSLError("synthetic load failure")
+
+    with (
+        patch.object(ssl.SSLContext, "load_cert_chain", fail_load),
+        pytest.raises(ssl.SSLError, match="client certificate configuration is invalid"),
+    ):
+        _client_tls_context(str(cert), str(key))
+    assert snapshots and all(not item.exists() and not item.parent.exists() for item in snapshots)
+    assert (cert.read_bytes(), key.read_bytes()) == originals
+
+
+def test_reconnect_restores_client_configuration(
+    client_chains: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cert, key = configure_client_files(client_chains, "strong", False, tmp_path, monkeypatch)
+    assert key is not None
+    original_context = _tls_context()
+    connection = _VerifiedConnection(
+        "localhost", cert_file=str(cert), key_file=str(key), ssl_context=original_context
+    )
+    snapshots = []
+
+    def fail_connect(self: _VerifiedConnection) -> None:
+        assert self.cert_file is None and self.key_file is None
+        assert self.ssl_context is not original_context
+        snapshots.append(self.ssl_context)
+        raise OSError("synthetic connection failure")
+
+    with patch("urllib3.connection.HTTPSConnection.connect", fail_connect):
+        for _ in range(2):
+            with pytest.raises(OSError, match="synthetic connection failure"):
+                connection.connect()
+            assert (connection.cert_file, connection.key_file, connection.ssl_context) == (
+                str(cert),
+                str(key),
+                original_context,
+            )
+    assert snapshots[0] is not snapshots[1]
+
+
+@pytest.mark.parametrize("case", ["weak-2047-root", "weak-intermediate"])
+def test_all_supplied_client_certificates_are_checked(
+    chains: dict[str, tuple[Path, Path, Path]], tmp_path: Path, case: str
+) -> None:
+    cert, key, ca = chains[case]
+    supplied = tmp_path / "client-chain.pem"
+    supplied.write_bytes(cert.read_bytes() + ca.read_bytes())
+    with pytest.raises(ssl.SSLError, match="client certificate configuration is invalid"):
+        _client_tls_context(str(supplied), str(key))
+
+
+@pytest.mark.parametrize("failure", ["encrypted", "mismatch"])
+def test_invalid_client_private_keys_are_rejected_without_prompting(
+    client_chains: dict[str, Any], tmp_path: Path, failure: str
+) -> None:
+    cert, key, _ = client_chains["strong"]
+    invalid_key = tmp_path / "invalid.key"
+    if failure == "encrypted":
+        private = serialization.load_pem_private_key(key.read_bytes(), password=None)
+        invalid_key.write_bytes(
+            private.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.BestAvailableEncryption(b"synthetic-only-password"),
+            )
+        )
+    else:
+        invalid_key.write_bytes(client_chains["weak"][1].read_bytes())
+    with pytest.raises(ssl.SSLError, match="client certificate configuration is invalid"):
+        _client_tls_context(str(cert), str(invalid_key))
 
 
 @pytest.mark.parametrize("level", [0, 3])
