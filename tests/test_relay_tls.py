@@ -239,7 +239,8 @@ def test_relay_checks_chain_before_credentials(
     # this disposable oracle's key-size policy. A fixture handshake must succeed.
     oracle = ssl.create_default_context(cafile=str(chain[2]))
     oracle.set_ciphers("DEFAULT:@SECLEVEL=0")
-    oracle.minimum_version = oracle.maximum_version = version
+    oracle.minimum_version = ssl.TLSVersion.TLSv1_2
+    oracle.maximum_version = version
     with (
         peer(chain, version) as (port, calibration),
         socket.create_connection(("127.0.0.1", port), timeout=3) as raw,
