@@ -8,6 +8,7 @@ Exports D-Bus/MQTT observations to OpenTelemetry and Prometheus. The existing RE
 
 ### Maintenance
 
+- Separate metric path predicates from publication while preserving gauge labels, unavailable-value handling and service invalidation.
 - Publish reviewed release notes from the exact source commit used to build each candidate, preserving build provenance.
 - Document contribution checks, confidential security reporting and the project-specific trust boundaries.
 
