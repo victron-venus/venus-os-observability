@@ -15,10 +15,12 @@ updates:
     directory: /
     schedule:
       interval: daily
-    # Ubuntu 26.04 supplies Python 3.14; this project requires Python 3.12/native bindings.
+    # Keep the Ubuntu 24.04/Python 3.12 native ABI; digest and patch updates remain enabled.
     ignore:
       - dependency-name: ubuntu
-        versions: ["26.04"]
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   - package-ecosystem: docker
     directory: /alert-mqtt-bridge
