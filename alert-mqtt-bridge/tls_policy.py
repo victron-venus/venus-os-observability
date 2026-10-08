@@ -89,7 +89,7 @@ class _HTTPProxyOnly(urllib.request.ProxyHandler):
         return super().proxy_open(req, proxy, type)
 
 
-class _HTTPSRedirects(urllib.request.HTTPRedirectHandler):
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(
         self,
         req: urllib.request.Request,
@@ -99,18 +99,16 @@ class _HTTPSRedirects(urllib.request.HTTPRedirectHandler):
         headers: HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
-        if urllib.parse.urlsplit(newurl).scheme != "https":
-            raise urllib.error.URLError("Alert HTTPS redirect to an insecure URL was rejected")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        raise urllib.error.URLError("Alert delivery redirects are disabled")
 
 
 def open_https(url: str, *, data: bytes, timeout: float) -> Any:
-    """Keep urllib routing/redirect semantics, excluding unprotected transports."""
+    """Use verified HTTPS and normal proxy routing, with no delivery redirects."""
     if urllib.parse.urlsplit(url).scheme != "https":
         raise urllib.error.URLError("Alert delivery requires an HTTPS URL")
     context = verified_context()
     context.set_alpn_protocols(["http/1.1"])
     opener = urllib.request.build_opener(
-        _HTTPProxyOnly(), _HTTPSRedirects(), urllib.request.HTTPSHandler(context=context)
+        _HTTPProxyOnly(), _RejectRedirects(), urllib.request.HTTPSHandler(context=context)
     )
     return opener.open(url, data=data, timeout=timeout)

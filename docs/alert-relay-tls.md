@@ -38,10 +38,11 @@ An HTTP proxy sees CONNECT metadata and any proxy authentication in plaintext;
 the destination HTTPS connection is still verified before Telegram data is sent.
 An unused HTTPS proxy setting is permitted when `NO_PROXY` bypasses it.
 
-HTTPS redirects retain urllib's existing behavior, including POST-to-GET where
-urllib normally performs that conversion. Redirects to HTTP or other schemes
-are rejected before a request reaches the target. No global urllib opener or
-SSL defaults are modified.
+Telegram delivery rejects every redirect before contacting its target, including
+HTTPS-to-HTTPS redirects. This prevents a POST from becoming a bodyless GET that
+could incorrectly be reported as a delivered alert. The original endpoint receives
+the POST once; configure the final Telegram endpoint directly. No global urllib
+opener or SSL defaults are modified.
 
 ## Verification scope
 

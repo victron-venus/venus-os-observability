@@ -141,9 +141,11 @@ def peer(
     smtp: bool = False,
     connect: bool = False,
     redirect: str | None = None,
+    redirect_code: int = 302,
 ) -> Iterator[tuple[int, dict[str, Any]]]:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = context.maximum_version = version
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.maximum_version = version
     context.set_ciphers("DEFAULT:@SECLEVEL=0")  # Only the synthetic peer permits weak fixtures.
     context.load_cert_chain(chain[0], chain[1])
     result: dict[str, Any] = {"commands": [], "application": b"", "connect": b""}
@@ -183,8 +185,23 @@ def peer(
                             if not chunk:
                                 return
                             result["application"] += chunk
+                        headers, body = result["application"].split(b"\r\n\r\n", 1)
+                        length = next(
+                            (
+                                int(line.split(b":", 1)[1])
+                                for line in headers.split(b"\r\n")
+                                if line.lower().startswith(b"content-length:")
+                            ),
+                            0,
+                        )
+                        while len(body) < length:
+                            chunk = conn.recv(8192)
+                            if not chunk:
+                                raise EOFError("Expected complete request body")
+                            body += chunk
+                            result["application"] += chunk
                         location = f"Location: {redirect}\r\n" if redirect else ""
-                        code = "302 Found" if redirect else "200 OK"
+                        code = f"{redirect_code} Redirect" if redirect else "200 OK"
                         conn.sendall(
                             (
                                 f"HTTP/1.1 {code}\r\n{location}"
@@ -312,41 +329,39 @@ def test_http_proxy_keeps_verified_tunnel(
     assert observed["application"]
 
 
-def test_http_redirect_rejected_before_request(
-    relay: Any, relay_chains: dict[str, tuple[Path, Path, Path]], monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("scheme", ["http", "https"])
+@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+def test_redirect_rejected_before_target_request(
+    relay: Any,
+    relay_chains: dict[str, tuple[Path, Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    scheme: str,
+    code: int,
 ) -> None:
     chain = relay_chains["strong"]
     trust(monkeypatch, chain)
-    with socket.socket() as insecure:
-        insecure.bind(("127.0.0.1", 0))
-        insecure.listen(1)
-        insecure.settimeout(0.1)
+    caplog.set_level("INFO")
+    with socket.socket() as target:
+        target.bind(("127.0.0.1", 0))
+        target.listen(1)
+        target.settimeout(0.1)
         with peer(
             chain,
             ssl.TLSVersion.TLSv1_2,
-            redirect=f"http://127.0.0.1:{insecure.getsockname()[1]}/unsafe",
+            redirect=f"{scheme}://localhost:{target.getsockname()[1]}/redirected",
+            redirect_code=code,
         ) as (port, observed):
             local_telegram(relay, monkeypatch, f"https://localhost:{port}/fixture")
-        assert observed["application"]
+        request = observed["application"]
+        assert request.startswith(b"POST /fixture HTTP/1.1\r\n")
+        assert request.count(b"POST /fixture ") == 1
+        assert b"chat_id=synthetic-chat" in request
+        assert b"Synthetic+body" in request
         with pytest.raises(TimeoutError):
-            insecure.accept()
-
-
-def test_https_redirect_still_works(
-    relay: Any, relay_chains: dict[str, tuple[Path, Path, Path]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    chain = relay_chains["strong"]
-    trust(monkeypatch, chain)
-    with (
-        peer(chain, ssl.TLSVersion.TLSv1_2) as (target, second),
-        peer(chain, ssl.TLSVersion.TLSv1_2, redirect=f"https://localhost:{target}/final") as (
-            port,
-            first,
-        ),
-    ):
-        local_telegram(relay, monkeypatch, f"https://localhost:{port}/fixture")
-    assert first["application"].startswith(b"POST /fixture")
-    assert second["application"].startswith(b"GET /final")
+            target.accept()
+    assert "Telegram send failed" in caplog.text
+    assert "Telegram sent to" not in caplog.text
 
 
 @pytest.mark.parametrize(
