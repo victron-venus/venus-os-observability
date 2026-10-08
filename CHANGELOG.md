@@ -2,6 +2,8 @@
 
 ## [0.1.7] - Development line
 
+- Harden outbound alert relay TLS: reject undersized keys in the verified chain before SMTP authentication or Telegram data, and reject unprotected proxy/redirect routes. See `docs/alert-relay-tls.md`.
+
 ### Release overview
 
 Exports D-Bus/MQTT observations to OpenTelemetry and Prometheus. The existing README documents configuration and external interfaces for this development line.
@@ -17,9 +19,13 @@ Exports D-Bus/MQTT observations to OpenTelemetry and Prometheus. The existing RE
 
 ### Upgrade
 
+Alert relay users must install the additional hash-locked TLS dependencies or rebuild the relay image. Reissue certificates below the documented key minima. HTTPS-proxy URLs are rejected; configure a direct route, NO_PROXY or an explicit HTTP CONNECT proxy with its documented metadata exposure. See `docs/alert-relay-tls.md`.
+
 Contributors should recreate their check environment with `bash scripts/ci.sh --install` after updating the lock and exported requirements together. Container builders require supported prebuilt dependency wheels. Existing HTTPS gRPC exporters must migrate to the collector's explicitly configured HTTPS OTLP/HTTP listener and select `http/protobuf`; see [the transport migration guide](docs/otlp-transport.md). Local plaintext gRPC configuration is unchanged. Retain local configuration and credentials when using the documented update procedure. Validate the candidate on an isolated system before production use; automated checks do not establish hardware acceptance.
 
 ### Security
+
+SMTP and Telegram now check exact keys on the verified connection before authentication or request data. This fixes acceptance of RSA-2047 roots under the tested OpenSSL security level. Telegram also refuses HTTP redirects and unprotected HTTPS-proxy handling.
 
 Private vulnerability reporting and response policy are documented in SECURITY.md. The previous gRPC TLS backend accepted trusted chains containing RSA keys below 2048 bits on the tested runtime. HTTPS export now uses OpenSSL security level 2 or higher plus exact key-length checks on the same verified connection, and rejects redirects before sending data to another endpoint. This does not replace deployment authentication, network isolation or independent equipment safeguards. No new project CVE is announced by these changes.
 

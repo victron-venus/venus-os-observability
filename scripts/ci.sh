@@ -16,7 +16,7 @@ fi
 if [[ "${1:-}" == security ]]; then
   "$python_bin" -m bandit -r . -lll -x ./.git/,./.venv/,./.venv-ci/,./tests/,./release-dist/,./dist/,./build/
   command -v trivy >/dev/null || { echo 'Install Trivy to run the same release dependency/secret scan locally.' >&2; exit 1; }
-  trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --skip-dirs .git,.venv,.venv-ci,release-dist,dist,build .
+  trivy fs --file-patterns 'pip:requirements-tls\.txt' --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --skip-dirs .git,.venv,.venv-ci,release-dist,dist,build .
   exit 0
 fi
 "$python_bin" -m ruff check .

@@ -13,18 +13,17 @@ import json
 import logging
 import os
 import smtplib
-import ssl
 import threading
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import paho.mqtt.client as mqtt
+from tls_policy import open_https, verified_context
 
 MQTT_HOST = os.environ.get("MQTT_HOST", "192.168.160.150")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
@@ -81,7 +80,7 @@ def send_email(name: str, level: str, summary: str, value: str) -> None:
     msg.set_content((f"{summary}\n\n{value}" if value else summary) + "\n")
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
-            s.starttls(context=ssl.create_default_context())
+            s.starttls(context=verified_context())
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
         log.info("Email sent: %s", name)
@@ -158,7 +157,7 @@ def send_telegram(name: str, level: str, summary: str, value: str) -> None:
     for chat_id in TG_CHAT_IDS:
         data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
         try:
-            with urllib.request.urlopen(url, data=data, timeout=15) as resp:
+            with open_https(url, data=data, timeout=15) as resp:
                 resp.read()
             log.info("Telegram sent to %s: %s", chat_id, name)
         except (OSError, urllib.error.URLError) as e:

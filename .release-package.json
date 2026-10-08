@@ -14,7 +14,8 @@
     "README.md",
     "docs/otlp-transport.md",
     "LICENSE",
-    ".python-version"
+    ".python-version",
+    "docs/alert-relay-tls.md"
   ],
   "wheel": true
 }

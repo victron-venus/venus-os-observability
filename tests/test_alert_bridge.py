@@ -11,6 +11,7 @@ import pytest
 @pytest.fixture
 def bridge(monkeypatch: pytest.MonkeyPatch) -> Any:
     path = Path(__file__).resolve().parents[1] / "alert-mqtt-bridge" / "relay.py"
+    monkeypatch.syspath_prepend(str(path.parent))
     spec = importlib.util.spec_from_file_location("alert_bridge", path)
     assert spec is not None and spec.loader is not None
     module: Any = importlib.util.module_from_spec(spec)
