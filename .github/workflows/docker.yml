@@ -27,4 +27,8 @@ jobs:
           tags: ghcr.io/victron-venus/venus-os-observability:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Build and smoke test the alert bridge image
+        run: |
+          docker build --tag venus-alert-bridge:ci alert-mqtt-bridge
+          docker run --rm --network none --entrypoint python venus-alert-bridge:ci -c "import relay"
     timeout-minutes: 30
