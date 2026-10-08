@@ -202,7 +202,7 @@ def peer(
                         )
             except ssl.SSLError as error:
                 result["handshake_error"] = str(error)
-            except ConnectionResetError as error:
+            except (ConnectionResetError, BrokenPipeError) as error:
                 if result["application_bytes"]:
                     result["unexpected_error"] = repr(error)
                 else:
