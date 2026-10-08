@@ -173,10 +173,12 @@ class ConsumerVersioningTests(unittest.TestCase):
         self.assertEqual(len(metadata), 1)
         payload = output / "app.tar.gz"
         payload.write_bytes(payload.read_bytes() + b"changed after build")
+        inventory = self.inventory(output)
         with self.assertRaises(ValueError):
             version_receipt.verify_receipts(
-                output, plan, self.inventory(output), self.policy
+                output, plan, inventory, self.policy
             )
+        self.assertEqual(self.inventory(output), inventory)
 
     def test_staging_rejects_dropped_input_evidence(self):
         self.freeze()
