@@ -106,6 +106,10 @@ class _VerifiedConnection(HTTPSConnection):
                 self.ssl_context = _client_tls_context(certificate, key)
                 # urllib3 must use the already loaded pair, not the original paths.
                 self.cert_file = self.key_file = None
+            else:
+                # Loading a CA bundle appends roots; never share a mutable context
+                # across separate CA selections or new connections after rotation.
+                self.ssl_context = _tls_context()
             super().connect()
             _verify_key_lengths(self.sock)
         except Exception:
@@ -138,10 +142,6 @@ class _VerifiedPool(HTTPSConnectionPool):
 
 
 class _TLSAdapter(HTTPAdapter):
-    def __init__(self) -> None:
-        self._context = _tls_context()
-        super().__init__()
-
     def init_poolmanager(
         self, connections: int, maxsize: int, block: bool = False, **pool_kwargs: Any
     ) -> None:
@@ -169,9 +169,7 @@ class _TLSAdapter(HTTPAdapter):
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if verify is False:
             raise ValueError("OTLP HTTPS certificate verification cannot be disabled")
-        host, options = super().build_connection_pool_key_attributes(request, verify, cert)
-        options["ssl_context"] = self._context
-        return host, options
+        return super().build_connection_pool_key_attributes(request, verify, cert)
 
 
 class _HTTPSOnlySession(requests.Session):

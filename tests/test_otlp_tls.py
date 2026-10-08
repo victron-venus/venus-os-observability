@@ -27,6 +27,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from venus_observability.otlp import (
     _client_tls_context,
+    _HTTPSOnlySession,
     _tls_context,
     _VerifiedConnection,
     _verify_key_lengths,
@@ -518,6 +519,29 @@ def test_invalid_client_private_keys_are_rejected_without_prompting(
         invalid_key.write_bytes(client_chains["weak"][1].read_bytes())
     with pytest.raises(ssl.SSLError, match="client certificate configuration is invalid"):
         _client_tls_context(str(cert), str(invalid_key))
+
+
+def test_separate_ca_selections_do_not_accumulate_trust(
+    chains: dict[str, tuple[Path, Path, Path]],
+) -> None:
+    with _HTTPSOnlySession() as session:
+        with peer(chains["strong"], ssl.TLSVersion.TLSv1_3) as (port, first):
+            response = session.post(
+                f"https://localhost:{port}/first", data=b"first", verify=str(chains["strong"][2])
+            )
+            assert response.status_code == 200
+            response.close()
+        with (
+            peer(chains["strong"], ssl.TLSVersion.TLSv1_3) as (port, second),
+            pytest.raises(requests.exceptions.SSLError),
+        ):
+            session.post(
+                f"https://localhost:{port}/second",
+                data=b"must-not-leave",
+                verify=str(chains["strong-ec"][2]),
+            )
+    assert first["application_bytes"].endswith(b"first")
+    assert second["application_bytes"] == b""
 
 
 @pytest.mark.parametrize("level", [0, 3])
