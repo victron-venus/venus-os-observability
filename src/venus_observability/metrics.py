@@ -10,6 +10,11 @@ from typing import Any
 from opentelemetry.metrics import Meter
 from prometheus_client import Counter, Gauge, Histogram
 
+# Shared protocol identifiers keep publication and update paths consistent.
+POWER_SUFFIX = "/power"
+CELL_VOLTAGE_SUFFIX = "/dc/0/voltages/cell"
+CELL_TEMPERATURE_SUFFIX = "/temperatures/cell"
+
 
 def _numeric_or_nan(value: Any) -> float:
     """Invalidate unavailable D-Bus values instead of retaining a stale gauge."""
@@ -198,13 +203,13 @@ class VictronMetrics:
             self._set_gauge(self.battery_soc, value, attrs, service)
         elif path_lower == "/dc/0/power":
             self._set_gauge(self.battery_power, value, attrs, service)
-        elif path_lower.startswith("/dc/0/voltages/cell"):
-            cell_num = path_lower.replace("/dc/0/voltages/cell", "")
+        elif path_lower.startswith(CELL_VOLTAGE_SUFFIX):
+            cell_num = path_lower.replace(CELL_VOLTAGE_SUFFIX, "")
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
                 self._set_gauge(self.cell_voltage, value, attrs, service)
-        elif path_lower.startswith("/temperatures/cell"):
-            cell_num = path_lower.replace("/temperatures/cell", "")
+        elif path_lower.startswith(CELL_TEMPERATURE_SUFFIX):
+            cell_num = path_lower.replace(CELL_TEMPERATURE_SUFFIX, "")
             if cell_num.isdigit():
                 attrs["cell"] = cell_num
                 self._set_gauge(self.cell_temperature, value, attrs, service)
@@ -218,7 +223,7 @@ class VictronMetrics:
         elif (
             path_lower == "/ac/loads/power"
             or self._is_phase_power(path_lower, "loads")
-            or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
+            or (path_lower.startswith("/ac/consumption/") and path_lower.endswith(POWER_SUFFIX))
         ):
             attrs = dict(attrs, phase=self._phase_from_path(path))
             self._set_gauge(self.ac_loads, value, attrs, service)
@@ -234,7 +239,7 @@ class VictronMetrics:
     @staticmethod
     def _is_phase_power(path_lower: str, section: str) -> bool:
         """Match per-phase watt paths like /Ac/Grid/L1/Power."""
-        return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith("/power")
+        return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith(POWER_SUFFIX)
 
     def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any], service: str) -> None:
         """Publish unavailable values as NaN, including Venus empty arrays."""
@@ -292,7 +297,7 @@ def _phase_from_path(path: str) -> str:
 
 def _is_phase_power(path_lower: str, section: str) -> bool:
     """Match per-phase watt paths like /Ac/Grid/L1/Power."""
-    return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith("/power")
+    return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith(POWER_SUFFIX)
 
 
 def update_prometheus_from_dbus(
@@ -322,18 +327,18 @@ def update_prometheus_from_dbus(
     elif (
         path_lower in ("/ac/loads/power",)
         or _is_phase_power(path_lower, "loads")
-        or (path_lower.startswith("/ac/consumption/") and path_lower.endswith("/power"))
+        or (path_lower.startswith("/ac/consumption/") and path_lower.endswith(POWER_SUFFIX))
     ):
         # Per-phase consumption (/Ac/Consumption/L1/Power) or legacy /Ac/Loads/*
         _set_prometheus_gauge(service, ac_loads, value, serial=serial, phase=_phase_from_path(path))
     elif path_lower == "/state":
         _set_prometheus_gauge(service, inverter_state, value, serial=serial)
-    elif path_lower.startswith("/dc/0/voltages/cell"):
-        cell = path_lower.replace("/dc/0/voltages/cell", "")
+    elif path_lower.startswith(CELL_VOLTAGE_SUFFIX):
+        cell = path_lower.replace(CELL_VOLTAGE_SUFFIX, "")
         if cell.isdigit():
             _set_prometheus_gauge(service, cell_voltages, value, serial=serial, cell=cell)
-    elif path_lower.startswith("/temperatures/cell"):
-        cell = path_lower.replace("/temperatures/cell", "")
+    elif path_lower.startswith(CELL_TEMPERATURE_SUFFIX):
+        cell = path_lower.replace(CELL_TEMPERATURE_SUFFIX, "")
         if cell.isdigit():
             _set_prometheus_gauge(service, cell_temperature, value, serial=serial, cell=cell)
 

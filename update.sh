@@ -115,8 +115,9 @@ if [ ! -f "$RC_LOCAL" ]; then
     printf '#!/bin/sh\n' > "$RC_LOCAL"
     chmod +x "$RC_LOCAL"
 fi
-sed -i '/# === venus-os-observability service persistence ===/,/# === end venus-os-observability ===/d' "$RC_LOCAL" 2>/dev/null || true
 HOOK=$(mktemp /data/.venus-observability-boot.XXXXXX)
+RC_TEMP=$(mktemp /data/.venus-observability-rc.XXXXXX)
+trap 'rm -f "$HOOK" "$RC_TEMP"' 0
 cat > "$HOOK" << 'RCEOF'
 
 # === venus-os-observability service persistence ===
@@ -131,12 +132,17 @@ svc -u /service/venus-os-observability 2>/dev/null || true
 RCEOF
 awk -v hook="$HOOK" '
     function insert_hook() { while ((getline line < hook) > 0) print line; close(hook) }
+    /# === venus-os-observability service persistence ===/ { skipping=1 }
+    skipping {
+        if (/# === end venus-os-observability ===/) skipping=0
+        next
+    }
     !inserted && /^[[:space:]]*exit[[:space:]]+0[[:space:]]*$/ { insert_hook(); inserted=1 }
     { print }
-    END { if (!inserted) insert_hook() }
-' "$RC_LOCAL" > "$RC_LOCAL.observability"
-chmod +x "$RC_LOCAL.observability"
-mv "$RC_LOCAL.observability" "$RC_LOCAL"
+    END { if (skipping) exit 2; if (!inserted) insert_hook() }
+' "$RC_LOCAL" > "$RC_TEMP"
+chmod +x "$RC_TEMP"
+mv "$RC_TEMP" "$RC_LOCAL"
 rm -f "$HOOK"
 sep "refreshed rc.local boot persistence block"
 
