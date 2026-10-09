@@ -113,5 +113,5 @@ show_missing = true
 
 [dependency-groups]
 # Lock the complete package-building and security-tool environments.
-build = ["build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0", "twine==6.1.0"]
+build = ["build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0", "twine==7.0.0"]
 security = ["bandit==1.9.2"]
