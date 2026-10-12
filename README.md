@@ -1,11 +1,11 @@
 # Venus OS Observability
 
-OpenTelemetry/Prometheus observability stack for Victron Venus OS — D-Bus event tracing, inverter metrics export, and distributed tracing across the MQTT → D-Bus → inverter-control pipeline.
+OpenTelemetry/Prometheus observability for Victron Venus OS: D-Bus signal tracing, inverter metrics export, optional application correlation helpers, and a separate Grafana alert relay.
 
 ## Python runtime
 
-Native Venus OS packages target **Python 3.12.x**. The audited Cerbo on Venus OS
-v3.75 reports Python **3.12.13**; the [official Venus OS v3.79 manifest](https://updates.victronenergy.com/feeds/venus/release/sdk/venus-scarthgap-x86_64-arm-cortexa8hf-neon-toolchain-v3.79.target.manifest)
+Native Venus OS packages target **Python 3.12.x**. The audited Raspberry Pi 3
+running Venus OS v3.75 reports Python **3.12.13**; the [official Venus OS v3.79 manifest](https://updates.victronenergy.com/feeds/venus/release/sdk/venus-scarthgap-x86_64-arm-cortexa8hf-neon-toolchain-v3.79.target.manifest)
 also ships 3.12.13. Local development and CI use `.python-version` / Python
 3.12.13. Package metadata accepts 3.12 patch updates and rejects other minor
 versions until they have been validated. Use the firmware's system interpreter
@@ -21,20 +21,20 @@ See the [release strategy](RELEASING.md) for validation, nightly, beta, RC and s
 
 ```mermaid
 graph LR
-    A[Victron Inverter] -->|D-Bus| B[D-Bus Signal Listener]
-    B --> C[OpenTelemetry SDK]
+    A[Venus D-Bus services] -->|ItemsChanged| B[D-Bus Signal Listener]
+    B --> C[Metrics and optional spans]
     C --> D[Prometheus Exporter :9090/metrics]
-    C --> E[OTLP Exporter → Grafana Tempo]
-    F[MQTT Broker] -->|inverter/state| B
-    G[inverter-control] -->|Commands| A
-    C -.->|Trace Context| G
+    C -->|Configured OTLP endpoint| E[Collector / Grafana Tempo]
+    D --> P[Prometheus / Grafana]
+    P -->|Configured alert webhook| R[Separate alert-mqtt-bridge]
+    R --> M[MQTT banners / SMTP / Telegram]
 ```
 
 ## Features
 
-- **D-Bus Signal Tracing**: Capture all Victron D-Bus signals with OpenTelemetry spans
+- **D-Bus Signal Tracing**: Observe Victron `ItemsChanged` signals; record spans when tracing is configured
 - **Prometheus Metrics**: Export inverter state (SOC, power, grid, battery) as Prometheus metrics
-- **Distributed Tracing**: Correlation IDs propagated across MQTT → D-Bus → inverter-control
+- **Correlation Helpers**: Explicit MQTT/application instrumentation helpers; installing the agent does not instrument other services or propagate context across native D-Bus automatically
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
 - **Native Venus OS Service**: Supports native supervision; offline pip installation requires wheels matching the target Python version and architecture
 
@@ -44,11 +44,18 @@ do not discard other items in the same signal. A later valid zero is retained as
 zero. Text-only updates do not replace numeric measurements. This handles value
 invalidation; it does not independently detect every silent source outage.
 
+## Deployment evidence
+
+The [verification record and acceptance checklist](docs/deployment-evidence.md)
+separate historical runtime observations from source tests and current deployment
+checks. A release does not establish that its artifact is installed or that every
+configured alert channel reaches a recipient.
+
 ## Installation
 
 ### Option 1: SetupHelper / PackageManager (Recommended)
 
-**Preferred install path on Cerbo GX / Venus OS** — same as `dbus-ev`, `dbus-evcharger`, and `inverter-control`. Requires [SetupHelper](https://github.com/kwindrem/SetupHelper) on the GX.
+**Preferred install path on Cerbo GX / Venus OS** — same as `dbus-ev` and `inverter-control`. Requires [SetupHelper](https://github.com/kwindrem/SetupHelper) on the GX.
 
 The easiest way to install is via SetupHelper PackageManager. The `setup` script is PackageManager-compatible and handles service creation, `/data/rc.local` boot persistence, and restarts.
 
@@ -218,20 +225,26 @@ services:
 
 ## Alert Delivery Setup
 
-Grafana evaluates the alert rules in folder **Venus Observability** (`venus-agent-down`,
-`venus-dbus-errors`, `venus-signals-stale`). Three delivery channels:
+Configure Grafana alert rules such as `venus-agent-down`, `venus-dbus-errors` and
+`venus-signals-stale`, then route their grouped webhooks to a separately deployed
+`alert-mqtt-bridge`. The agent does not create Grafana rules, contact points or
+recipient credentials automatically.
 
-| Channel | Path | Status |
+| Channel | Path | Installation prerequisite |
 |---|---|---|
-| MQTT banners | Grafana → `alert-mqtt-bridge` → `inverter/notifications` | ✅ live |
-| Email | Grafana → `alert-mqtt-bridge` → Brevo SMTP relay (`:587`) | ✅ live 2026-08-24 |
-| Telegram | Grafana → `alert-mqtt-bridge` → Bot API (`@victronbot`) | ✅ live 2026-08-24 |
+| MQTT banners | Grafana → `alert-mqtt-bridge` → `inverter/notifications` | Broker access, contact point and dashboard consumer |
+| Email | Grafana → `alert-mqtt-bridge` → SMTP relay with STARTTLS | Relay account and verified sender/recipient configuration |
+| Telegram | Grafana → `alert-mqtt-bridge` → Bot API | Bot token and an authorized chat |
+
+These paths describe supported integrations, not a current delivery-status
+monitor. The installation notes originally recorded successful email and
+Telegram delivery on 2026-08-24; repeat firing and resolved delivery checks after
+changes. See [evidence and limits](docs/deployment-evidence.md).
 
 > **Secrets rule:** real tokens and passwords never go into this repository.
 > README examples keep `<placeholders>`; actual values live in
-> `/volume1/docker/inverter-monitoring/.env` on Synology (not a git repo) or inside
-> the Grafana database. For a local working copy use a `*.local` file — already
-> covered by `.gitignore`.
+> a protected deployment secret store or mode-600 environment file outside Git.
+> For a local working copy use a `*.local` file — already covered by `.gitignore`.
 
 ### Grouped delivery and query failures
 
@@ -250,11 +263,13 @@ and keep query errors separate from application alerts. Do not change an error
 state to Normal merely to silence a broken monitoring pipeline.
 The bridge does not impose an additional cooldown that could hide a new incident.
 
-### Channel 1: MQTT banners (already live)
+### Channel 1: MQTT banners
 
-Source: [`alert-mqtt-bridge/`](alert-mqtt-bridge/). Container `venus-alert-bridge`
-on Synology, contact point **MQTT bridge** is the default notification receiver.
-Nothing to configure — new alert rules are delivered automatically.
+Source: [`alert-mqtt-bridge/`](alert-mqtt-bridge/). Deploy the relay, configure its
+broker connection, and create a Grafana webhook contact point for it. Attach that
+contact point to the intended notification policies. Verify both firing and
+resolved messages in the dashboard; rules outside those policies are not routed
+automatically.
 
 ### Channel 2: Telegram
 
@@ -301,8 +316,8 @@ use it as-is.
 
 #### 2.3 Wire the bridge (Synology)
 
-Grafana's Telegram integration is a silent no-op in this build, same as
-email — the bridge sends instead. Append to
+The reference installation uses the bridge for Telegram delivery. Configure
+that path explicitly rather than assuming a Grafana-native contact point is active. Append to
 `/volume1/docker/venus-alert-bridge/envfile` (chmod 600, outside git):
 
 ```
@@ -317,7 +332,12 @@ including firing and recovery states.
 
 #### 2.5 Verify end-to-end
 
-Temporarily stop the agent on Cerbo — `venus-agent-down` fires after its `for` window:
+First use a Grafana test notification to check the configured route without
+interrupting monitoring. Confirm both the recipient and dashboard receive it;
+this tests delivery, not the agent-down rule. To test that rule during an agreed
+maintenance window, temporarily stop the agent on the intended Venus host:
+`venus-agent-down` should fire after its configured `for` window. Resume the agent
+and verify the resolved message even if delivery fails:
 
 ```bash
 ssh root@cerbo 'svc -d /service/venus-os-observability'   # pause
@@ -325,14 +345,13 @@ ssh root@cerbo 'svc -d /service/venus-os-observability'   # pause
 ssh root@cerbo 'svc -u /service/venus-os-observability'   # resume -> resolved message
 ```
 
-### Channel 3: Email via alert-mqtt-bridge + external SMTP relay (live)
+### Channel 3: Email via alert-mqtt-bridge + external SMTP relay
 
-Tested 2026-08-24: outbound port 25 is **blocked by the ISP** and PTR on a
-residential IP is unavailable, so direct delivery from a self-hosted MTA is
-impossible. Additionally, this Grafana build (12.4.2, watchtower-upgraded)
-accepts an Email contact point but delivers silently to nowhere — no SMTP
-attempt logged, no provider-side events. So email fan-out lives in the
-**bridge**, which already receives every webhook reliably:
+In the reference installation's 2026-08-24 notes, outbound port 25 was blocked,
+a usable PTR record was unavailable, and its Grafana-native email contact point
+produced no SMTP attempt or provider event. That installation used the bridge
+with an external STARTTLS relay. These are historical site observations, not a
+claim about every ISP, Grafana version or current deployment. The configured path is:
 
 ```mermaid
 flowchart LR
@@ -394,7 +413,8 @@ The site policy and rollout instructions are documented above.
 
 #### 3.3 Verify
 
-1. Trigger a firing alert (stop the agent per channel 2.5).
+1. Check a test notification first; test actual firing and recovery during a
+   maintenance window as described in channel 2.5.
 2. Bridge log shows `Email sent: <alertname>`; check inbox AND spam folder.
 3. Brevo console → Transactional → Statistics shows per-message events
    (delivered / blocked / rejected) — fastest place to diagnose rejects.
