@@ -13,6 +13,10 @@
 
 Rebuild alert relay environments with the locked TLS dependencies and replace certificates below the documented key minima. Migrate HTTPS gRPC exporters to an explicitly configured HTTPS OTLP/HTTP listener with `http/protobuf`; explicit local plaintext gRPC remains supported. See [the OTLP migration guide](docs/otlp-transport.md) and [alert relay TLS guidance](docs/alert-relay-tls.md). Hardware and in-place device upgrades require separate acceptance checks.
 
+### Security
+
+Verify peer certificates, hostnames and minimum key sizes before sending SMTP credentials, alert content or HTTPS OTLP data. Reject unsafe redirects and proxy routes. Replace weak certificates and retain explicit trust configuration; local plaintext exporters remain an operator-selected trust boundary.
+
 ## [0.1.7] - Development line
 
 - Harden outbound alert relay TLS: reject undersized keys in the verified chain before SMTP authentication or Telegram data, and reject unprotected proxy/redirect routes. See `docs/alert-relay-tls.md`.
