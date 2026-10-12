@@ -1056,7 +1056,7 @@ wheels = [
 
 [[package]]
 name = "venus-os-observability"
-version = "0.1.7"
+version = "0.1.8"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
