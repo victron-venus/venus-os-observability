@@ -212,20 +212,25 @@ def github_http_response(stdout: bytes, paginated: bool = False) -> tuple[int, b
     gh normalizes those server-generated objects (including duplicate keys);
     nonpaginated bodies retain their exact bytes and strict JSON validation.
     """
+
     def read_head(data: bytes) -> tuple[int, bytes]:
         separator = re.search(rb"\r?\n\r?\n", data)
         if separator is None:
             raise GitHubError("GitHub response headers are missing or truncated")
-        lines = data[:separator.start()].splitlines()
-        status = re.fullmatch(
-            rb"HTTP/(?:1\.[01]|2(?:\.0)?) ([1-5]\d{2})(?: [^\r\n]*)?", lines[0]
-        ) if lines else None
+        lines = data[: separator.start()].splitlines()
+        status = (
+            re.fullmatch(
+                rb"HTTP/(?:1\.[01]|2(?:\.0)?) ([1-5]\d{2})(?: [^\r\n]*)?", lines[0]
+            )
+            if lines
+            else None
+        )
         if status is None or any(
             not re.fullmatch(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+:[^\r\n]*", line)
             for line in lines[1:]
         ):
             raise GitHubError("GitHub response headers are invalid")
-        return int(status.group(1)), data[separator.end():]
+        return int(status.group(1)), data[separator.end() :]
 
     status, body = read_head(stdout)
     if not paginated:
@@ -253,7 +258,9 @@ def github_http_response(stdout: bytes, paginated: bool = False) -> tuple[int, b
         separator = re.compile(r"\r?\n\r?\n").search(text, position)
         if separator is None:
             raise GitHubError("GitHub response headers are missing or truncated")
-        header = text[position:separator.end()].encode("utf-8", errors="surrogateescape")
+        header = text[position : separator.end()].encode(
+            "utf-8", errors="surrogateescape"
+        )
         status, _ = read_head(header)
         position = separator.end()
     # A failed page invalidates every preceding page from the same attempt.
@@ -333,7 +340,8 @@ class GitHub:
 
     @staticmethod
     def response(
-        result: subprocess.CompletedProcess[bytes], operation: str = "",
+        result: subprocess.CompletedProcess[bytes],
+        operation: str = "",
         http: tuple[int, bytes] | None = None,
     ) -> bytes:
         """Translate a completed fixed-form command without retrying failed writes."""
@@ -394,10 +402,16 @@ class GitHub:
             "PUT": ["--method", "PUT"],
         }[method]
         command = [
-            "gh", "api", "--hostname", GITHUB_HOSTNAME, "--include",
-            *method_args, *modes[mode],
+            "gh",
+            "api",
+            "--hostname",
+            GITHUB_HOSTNAME,
+            "--include",
+            *method_args,
+            *modes[mode],
             *(["--input", "-"] if body is not None else []),
-            "--", endpoint,
+            "--",
+            endpoint,
         ]
         # Developer/CI toolchain selected by the invoking operator via PATH.
         result = subprocess.run(  # nosec B603
@@ -407,7 +421,8 @@ class GitHub:
             check=False,
         )
         return self.response(
-            result, f"{method} {endpoint}",
+            result,
+            f"{method} {endpoint}",
             github_http_response(result.stdout, mode == "pages"),
         )
 

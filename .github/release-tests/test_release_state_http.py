@@ -70,9 +70,7 @@ class LedgerHTTPTests(unittest.TestCase):
 
         with patch.object(state.subprocess, "run", side_effect=dispatch) as run:
             ledger, previous = state.read_state(self.github)
-        self.assertEqual(
-            ledger, {"schema": 1, "counter": 0, "publication_floor": 0, "plans": {}}
-        )
+        self.assertEqual(ledger, {"schema": 1, "counter": 0, "publication_floor": 0, "plans": {}})
         self.assertIsNone(previous)
         self.assertEqual(run.call_count, 2)
         self.assertFalse(replies)
@@ -84,9 +82,7 @@ class LedgerHTTPTests(unittest.TestCase):
                 patch.object(
                     state.subprocess,
                     "run",
-                    side_effect=self.response(
-                        state.READ_PATH, status, {"errors": "HTTP 404"}
-                    ),
+                    side_effect=self.response(state.READ_PATH, status, {"errors": "HTTP 404"}),
                 ) as run,
                 self.assertRaises(state.rc.GitHubError) as error,
             ):
@@ -146,9 +142,7 @@ class LedgerHTTPTests(unittest.TestCase):
         with patch.object(
             state.subprocess,
             "run",
-            side_effect=self.response(
-                state.WRITE_PATH, 201, {"content": {"sha": "a" * 40}}, "PUT"
-            ),
+            side_effect=self.response(state.WRITE_PATH, 201, {"content": {"sha": "a" * 40}}, "PUT"),
         ) as run:
             result = self.github.api(
                 state.WRITE_PATH, "PUT", {"branch": state.BRANCH, "content": "e30="}
