@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.8] - Development line
+
+### Changes
+
+- Verify SMTP STARTTLS certificates and reject weak alert-relay TLS keys before sending credentials or alert data.
+- Add explicit HTTPS OTLP/HTTP export with certificate and key checks; reject HTTPS gRPC with migration guidance.
+- Verify locked Python dependency hashes across CI, packaging and container builds, retaining the supported Paho MQTT API.
+- Separate metric routing predicates without changing published values, refresh build/security tooling, and fix release API status handling.
+
+### Upgrade
+
+Rebuild alert relay environments with the locked TLS dependencies and replace certificates below the documented key minima. Migrate HTTPS gRPC exporters to an explicitly configured HTTPS OTLP/HTTP listener with `http/protobuf`; explicit local plaintext gRPC remains supported. See [the OTLP migration guide](docs/otlp-transport.md) and [alert relay TLS guidance](docs/alert-relay-tls.md). Hardware and in-place device upgrades require separate acceptance checks.
+
 ## [0.1.7] - Development line
 
 - Harden outbound alert relay TLS: reject undersized keys in the verified chain before SMTP authentication or Telegram data, and reject unprotected proxy/redirect routes. See `docs/alert-relay-tls.md`.
