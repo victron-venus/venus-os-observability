@@ -367,9 +367,6 @@ class Handler(BaseHTTPRequestHandler):
             if len(body) != length:
                 raise ValueError("Incomplete webhook")
             payload = _validate_payload(json.loads(body or b"{}"))
-            n = publish_alerts(payload)
-            log.info("Webhook: %d alert(s), status=%s", n, payload.get("status"))
-            self.send_response(200)
         except TimeoutError:
             self.send_error(408, "Webhook read timed out")
             return
@@ -377,6 +374,16 @@ class Handler(BaseHTTPRequestHandler):
             # Parser exceptions can contain untrusted data; keep diagnostics generic.
             log.warning("Rejected malformed webhook payload")
             self.send_response(400)
+            self.end_headers()
+            return
+        try:
+            n = publish_alerts(payload)
+        except (ValueError, RecursionError):
+            log.error("Notification dispatch failed")
+            self.send_error(500, "Notification dispatch failed")
+            return
+        log.info("Webhook: %d alert(s), status=%s", n, payload.get("status"))
+        self.send_response(200)
         self.end_headers()
 
     def do_GET(self) -> None:  # pylint: disable=invalid-name  # noqa: N802

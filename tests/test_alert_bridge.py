@@ -200,3 +200,20 @@ def test_http_accepts_valid_empty_batch(bridge: Any, webhook_server: ThreadingHT
     finally:
         connection.close()
     bridge.client.publish.assert_called_once()
+
+
+def test_dispatch_error_is_server_failure_without_leaking_details(
+    bridge: Any, webhook_server: ThreadingHTTPServer, caplog: pytest.LogCaptureFixture
+) -> None:
+    bridge.client.publish.side_effect = ValueError("private-dispatch-detail")
+    connection = http.client.HTTPConnection("127.0.0.1", webhook_server.server_port, timeout=2)
+    try:
+        connection.request("POST", "/grafana", b'{"alerts":[]}')
+        response = connection.getresponse()
+        assert response.status == 500
+        assert b"private-dispatch-detail" not in response.read()
+    finally:
+        connection.close()
+    assert "Notification dispatch failed" in caplog.text
+    assert "private-dispatch-detail" not in caplog.text
+    assert "malformed webhook" not in caplog.text
