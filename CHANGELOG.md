@@ -8,6 +8,9 @@
 
 ### Changes
 
+- Bound and validate Grafana webhook bodies and entire alert batches before forwarding notifications; document governance, security evidence and remaining OpenSSF requirements.
+- Reject oversized, entity-bearing or malformed D-Bus introspection XML without interrupting service discovery.
+- Close alert TLS sockets after fatal handshake errors while preserving nonblocking retries.
 - Verify SMTP STARTTLS certificates and reject weak alert-relay TLS keys before sending credentials or alert data.
 - Add explicit HTTPS OTLP/HTTP export with certificate and key checks; reject HTTPS gRPC with migration guidance.
 - Verify locked Python dependency hashes across CI, packaging and container builds, retaining the supported Paho MQTT API.
@@ -15,7 +18,7 @@
 
 ### Upgrade
 
-Rebuild alert relay environments with the locked TLS dependencies and replace certificates below the documented key minima. Migrate HTTPS gRPC exporters to an explicitly configured HTTPS OTLP/HTTP listener with `http/protobuf`; explicit local plaintext gRPC remains supported. See [the OTLP migration guide](docs/otlp-transport.md) and [alert relay TLS guidance](docs/alert-relay-tls.md). Hardware and in-place device upgrades require separate acceptance checks.
+Grafana webhook clients must supply one decimal Content-Length, stay within 1 MiB/1000 alerts, and use string labels/annotations. Empty alerts arrays remain supported; malformed batches are rejected before delivery. Rebuild alert relay environments with the locked TLS dependencies and replace certificates below the documented key minima. Migrate HTTPS gRPC exporters to an explicitly configured HTTPS OTLP/HTTP listener with `http/protobuf`; explicit local plaintext gRPC remains supported. See [the OTLP migration guide](docs/otlp-transport.md) and [alert relay TLS guidance](docs/alert-relay-tls.md). Hardware and in-place device upgrades require separate acceptance checks.
 
 ### Security
 

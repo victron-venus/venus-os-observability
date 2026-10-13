@@ -1,6 +1,10 @@
 """Regression coverage for grouped Grafana delivery; no external messages are sent."""
 
+import http.client
 import importlib.util
+import threading
+from collections.abc import Iterator
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -100,3 +104,116 @@ def test_empty_payload_does_not_send_email_or_telegram(bridge: Any) -> None:
     assert bridge.publish_alerts({"alerts": []}) == 0
     bridge.send_email.assert_not_called()
     bridge.send_telegram.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        None,
+        {"alerts": {}},
+        {"alerts": None},
+        {"alerts": [None]},
+        {"alerts": [{"labels": []}]},
+        {"alerts": [{"annotations": {"summary": 3}}]},
+        {"alerts": [{"valueString": []}]},
+        {"alerts": [{"status": "unexpected"}]},
+        {"status": []},
+        {"alerts": [{}] * 1001},
+    ],
+)
+def test_rejects_malformed_batch_before_any_delivery(bridge: Any, payload: Any) -> None:
+    with pytest.raises(ValueError):
+        bridge.publish_alerts(payload)
+    bridge.client.publish.assert_not_called()
+    bridge.send_email.assert_not_called()
+    bridge.send_telegram.assert_not_called()
+
+
+def test_validates_late_batch_entries_before_first_delivery(bridge: Any) -> None:
+    with pytest.raises(ValueError):
+        bridge.publish_alerts({"alerts": [alert(), {"annotations": {"summary": False}}]})
+    bridge.client.publish.assert_not_called()
+    bridge.send_email.assert_not_called()
+
+
+@pytest.fixture
+def webhook_server(bridge: Any) -> Iterator[ThreadingHTTPServer]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), bridge.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ([], 400),
+        ([("Content-Length", "-1")], 400),
+        ([("Content-Length", "invalid")], 400),
+        ([("Content-Length", "999999999999999999999999")], 413),
+        ([("Content-Length", "1048577")], 413),
+        ([("Content-Length", "2"), ("Content-Length", "2")], 400),
+        ([("Content-Length", "2"), ("Transfer-Encoding", "chunked")], 400),
+    ],
+)
+def test_http_rejects_unsafe_lengths_without_waiting_for_body(
+    bridge: Any, webhook_server: ThreadingHTTPServer, headers: list[tuple[str, str]], expected: int
+) -> None:
+    connection = http.client.HTTPConnection("127.0.0.1", webhook_server.server_port, timeout=2)
+    try:
+        connection.putrequest("POST", "/grafana")
+        for name, value in headers:
+            connection.putheader(name, value)
+        connection.endheaders()
+        response = connection.getresponse()
+        assert response.status == expected
+        response.read()
+    finally:
+        connection.close()
+    bridge.client.publish.assert_not_called()
+
+
+@pytest.mark.parametrize("body", [b"[]", b'{"alerts":[null]}', b"\xff", b"[" * 2000])
+def test_http_rejects_invalid_json(
+    bridge: Any, webhook_server: ThreadingHTTPServer, body: bytes
+) -> None:
+    connection = http.client.HTTPConnection("127.0.0.1", webhook_server.server_port, timeout=2)
+    try:
+        connection.request("POST", "/grafana", body)
+        assert connection.getresponse().status == 400
+    finally:
+        connection.close()
+    bridge.client.publish.assert_not_called()
+
+
+def test_http_accepts_valid_empty_batch(bridge: Any, webhook_server: ThreadingHTTPServer) -> None:
+    connection = http.client.HTTPConnection("127.0.0.1", webhook_server.server_port, timeout=2)
+    try:
+        connection.request("POST", "/grafana", b'{"alerts":[]}')
+        assert connection.getresponse().status == 200
+    finally:
+        connection.close()
+    bridge.client.publish.assert_called_once()
+
+
+def test_dispatch_error_is_server_failure_without_leaking_details(
+    bridge: Any, webhook_server: ThreadingHTTPServer, caplog: pytest.LogCaptureFixture
+) -> None:
+    bridge.client.publish.side_effect = ValueError("private-dispatch-detail")
+    connection = http.client.HTTPConnection("127.0.0.1", webhook_server.server_port, timeout=2)
+    try:
+        connection.request("POST", "/grafana", b'{"alerts":[]}')
+        response = connection.getresponse()
+        assert response.status == 500
+        assert b"private-dispatch-detail" not in response.read()
+    finally:
+        connection.close()
+    assert "Notification dispatch failed" in caplog.text
+    assert "private-dispatch-detail" not in caplog.text
+    assert "malformed webhook" not in caplog.text
