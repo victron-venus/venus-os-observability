@@ -1,6 +1,13 @@
 # OpenSSF Best Practices evidence: venus-os-observability
 
-This index supports review against the [OpenSSF Passing criteria](https://www.bestpractices.dev/en/criteria/0). It is not an awarded badge, a security guarantee or a completed self-attestation. Initial source inventory: `737c0d51a6378a96f32f52afbf109b667444a0e0`. Re-check the final merged commit and its CI before submitting an assessment.
+This index supports review against the [Passing](https://www.bestpractices.dev/en/criteria/0) and [Silver](https://www.bestpractices.dev/en/criteria/1) criteria. It does not itself award a badge. The live assessment is authoritative; unverified requirements remain open.
+
+- [Governance and actual continuity gap](../GOVERNANCE.md), [code of conduct](../CODE_OF_CONDUCT.md) and [roadmap](../ROADMAP.md).
+- [Security assurance case](security-assurance.md) maps trust boundaries and claims to tests.
+- [Quality/build evidence and scope](quality-and-build.md) explains checks, packaging and limitations.
+- [Dated source and security inventory](evidence/openssf-inventory-2026-10-13.json).
+
+No backup maintainer or tested emergency-access arrangement exists. Signed releases, complete repeatability, full-project 80% statement coverage and a six-month regression percentage remain unverified. Never infer them from a green build or a public clone.
 
 ## Project and contribution process
 

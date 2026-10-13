@@ -289,6 +289,34 @@ class TestVictronServiceDiscovery:
         assert "/Soc" in paths
         assert "/Dc" in paths
 
+    @pytest.mark.parametrize(
+        "xml",
+        [
+            None,
+            "<node>",
+            "x" * (1024 * 1024 + 1),
+            '<!DOCTYPE node [<!ENTITY a "Soc">]><node><node name="&a;"/></node>',
+        ],
+        ids=["wrong-type", "malformed", "oversized", "entity"],
+    )
+    def test_introspection_rejects_unsafe_or_malformed_xml(
+        self, mock_dbus_bus: MagicMock, xml: object
+    ) -> None:
+        mock_dbus_bus.get_object.return_value.Introspect.return_value = xml
+        discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
+        assert discovery._introspect_service("com.victronenergy.battery.test") == []
+
+    def test_introspection_accepts_standard_external_doctype(
+        self, mock_dbus_bus: MagicMock
+    ) -> None:
+        mock_dbus_bus.get_object.return_value.Introspect.return_value = (
+            '<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" '
+            '"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">'
+            '<node><node name="Soc"/></node>'
+        )
+        discovery = VictronServiceDiscovery(bus=mock_dbus_bus)
+        assert discovery._introspect_service("com.victronenergy.battery.test") == ["/Soc"]
+
     def test_get_known_paths(self, mock_dbus_bus: MagicMock) -> None:
         """Test getting known paths for service types."""
         discovery = VictronServiceDiscovery(bus=mock_dbus_bus)

@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-13T23:01:19.744680+00:00",
+  "project": "victron-venus/venus-os-observability",
+  "source_base": "3d4417765ebb38498cead4ae3b3a267c47161784",
+  "private_vulnerability_reporting_enabled": true,
+  "open_dependabot_alerts": 0,
+  "open_secret_scanning_alerts": 0,
+  "repository_security_advisories": 0,
+  "open_code_scanning_alerts": [
+    {
+      "number": 15,
+      "rule": "CIIBestPracticesID",
+      "severity": "low",
+      "url": "https://github.com/victron-venus/venus-os-observability/security/code-scanning/15"
+    },
+    {
+      "number": 13,
+      "rule": "MaintainedID",
+      "severity": "high",
+      "url": "https://github.com/victron-venus/venus-os-observability/security/code-scanning/13"
+    },
+    {
+      "number": 12,
+      "rule": "FuzzingID",
+      "severity": "medium",
+      "url": "https://github.com/victron-venus/venus-os-observability/security/code-scanning/12"
+    },
+    {
+      "number": 3,
+      "rule": "BranchProtectionID",
+      "severity": "high",
+      "url": "https://github.com/victron-venus/venus-os-observability/security/code-scanning/3"
+    }
+  ],
+  "release_count_reviewed": 40,
+  "release_notes_scope": "Current release bodies include human-readable source summaries, upgrade and security guidance; historical notes are explicitly marked retrospective where applicable.",
+  "latest_stable": {
+    "tag": "v0.1.7",
+    "url": "https://github.com/victron-venus/venus-os-observability/releases/tag/v0.1.7",
+    "signed_artifacts_verified": false,
+    "repeatability_verified": false
+  },
+  "recent_substantive_changes": [
+    {
+      "commit": "c732d26",
+      "pr": 67,
+      "scope": "OTLP HTTPS transport and exact certificate key checks",
+      "tests": [
+        "tests/test_otlp.py",
+        "tests/test_otlp_tls.py"
+      ]
+    },
+    {
+      "commit": "d67b879",
+      "pr": 68,
+      "scope": "SMTP and Telegram verified-chain checks",
+      "tests": [
+        "tests/test_relay_tls.py",
+        "tests/test_smtp_tls.py"
+      ]
+    }
+  ],
+  "human_attestation": {
+    "date": "2026-10-13",
+    "source": "primary maintainer confirmation for the next-wave projects",
+    "secure_design_and_common_vulnerabilities_knowledge": true,
+    "outside_github_reports_last_12_months": "none",
+    "continuity_arrangement": "none"
+  },
+  "static_analysis_review": {
+    "tool": "Bandit 1.9.4; all severities",
+    "medium_findings": [
+      {
+        "rule": "B108",
+        "file": ".github/release-tests/test_version_plan.py",
+        "disposition": "The /tmp/escape literal is a rejected input fixture in traversal tests, not a real temporary file."
+      },
+      {
+        "rule": "B506",
+        "file": "scripts/workflow_contracts.py",
+        "disposition": "yaml.BaseLoader only constructs strings, lists and mappings; it does not instantiate arbitrary Python objects."
+      },
+      {
+        "rule": "B104",
+        "file": "alert-mqtt-bridge/relay.py",
+        "disposition": "Deliberate container listener; no application authentication. Deployment requires trusted ingress/firewall/proxy restrictions, documented as a limitation."
+      }
+    ],
+    "fixed_boundary": "D-Bus XML text is bounded to 1,048,576 characters, internal entities rejected and malformed documents handled. Standard external DTDs are not retrieved by ElementTree.",
+    "high_findings": 0
+  },
+  "limits": [
+    "No live-device acceptance in this review",
+    "No independent security audit",
+    "No full-project coverage or six-month regression percentage claim",
+    "No continuous fuzzer claimed",
+    "No tested backup maintainer or emergency access"
+  ],
+  "local_validation": {
+    "python": "3.12.13",
+    "ruff": "pass",
+    "mypy": "pass, 42 source files",
+    "pytest": {
+      "passed": 305,
+      "known_paho_deprecation_warnings": 87,
+      "command": "python -m pytest tests/ --cov=. --cov-fail-under=80",
+      "reported_statements": 1462,
+      "covered_statements": 1283,
+      "percent": 87.75649794801642,
+      "scope": "Partial imported/discoverable Python coverage, excludes tests; not a whole-project Silver statement coverage claim"
+    },
+    "release_unittests": {
+      "passed": 342
+    },
+    "workflow_contracts": "pass",
+    "version_identity": "pass",
+    "wheel_and_sdist_build": "pass",
+    "twine_check": "pass"
+  },
+  "source_file_sha256": {
+    "src/venus_observability/__init__.py": "ac9a7546903fe8b285d74d35cffc65bcaf3fee6af0224353252257e9d54ba093",
+    "src/venus_observability/__main__.py": "327f80dda935bc7c626efba7ebd8d26734ec5b80f492b66101148fd0cd7bc8db",
+    "src/venus_observability/correlation.py": "b6d69188ec569aa06e151924a6a81b32b3161c7efdf7f006429c9ab5efd54739",
+    "src/venus_observability/dbus_listener.py": "5b0b6e7d1ca09a1e6ffed25a0a2f65128707221a1a0b4618ea4cb7fbc105a06c",
+    "src/venus_observability/dbus_owners.py": "76625d5a8c03bbd003a5316e83a3cd0942762a81b0b34fa45a7baa1bb59ae832",
+    "src/venus_observability/metrics.py": "c72d577b87fcc637d29af92939fdd5c11f83f7887dd853be341916dc79d1e307",
+    "src/venus_observability/otlp.py": "3ac96841c96b4fd34b66b9ef5b19b1180c6031f0423f717045ef282c0428e12c",
+    "alert-mqtt-bridge/relay.py": "981ed5c1246750018cbfe0fe9d7d12c0eed96bb0c00af28c1ddca597df855d46"
+  }
+}

@@ -15,6 +15,10 @@ Use [GitHub Issues](https://github.com/victron-venus/venus-os-observability/issu
 5. Update user-facing configuration/interface documentation and release notes for changed behavior. Record upgrade impact and any public vulnerability identifier when applicable.
 6. Report the exact checks run, their results and any checks that were not run. Wait for required CI and reviewer approval before merging.
 
+Follow [GOVERNANCE.md](GOVERNANCE.md) for roles and decisions and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for respectful participation.
+
+Use PEP 8 as implemented by the checked-in Ruff rules and formatter, type annotations checked by mypy, and explicit quoted variables with fail-fast behavior in shell scripts. Do not hide new warnings with broad suppressions; document any narrow exception with its reason and regression coverage.
+
 Contributions must be compatible with [LICENSE](LICENSE). Preserve third-party copyright and license notices; do not copy code without compatible redistribution rights.
 
 ## Local validation

@@ -30,6 +30,8 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 NOTIFY_TOPIC = os.environ.get("ALERT_TOPIC", "inverter/notifications")
 STATE_TOPIC = os.environ.get("STATE_TOPIC", "venus/alerts")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8095"))
+MAX_WEBHOOK_BYTES = 1024 * 1024
+MAX_WEBHOOK_ALERTS = 1000
 
 # Optional email fan-out via external SMTP relay (e.g. Brevo :587).
 # Empty SMTP_HOST or SMTP_TO disables the channel.
@@ -285,8 +287,35 @@ def _send_digest(alerts: list[dict[str, Any]]) -> None:
         send_telegram(name, level, summary, body[:3500])
 
 
+def _validate_payload(payload: object) -> dict[str, Any]:
+    """Validate the entire batch before any notification side effect."""
+    if not isinstance(payload, dict):
+        raise ValueError("Webhook must be a JSON object")
+    if "status" in payload and payload["status"] not in ("firing", "resolved"):
+        raise ValueError("Invalid webhook status")
+    alerts = payload.get("alerts", [])
+    if not isinstance(alerts, list) or len(alerts) > MAX_WEBHOOK_ALERTS:
+        raise ValueError("Webhook alerts must be an array of at most 1000 objects")
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            raise ValueError("Each alert must be an object")
+        for field in ("labels", "annotations"):
+            mapping = alert.get(field, {})
+            if not isinstance(mapping, dict) or not all(
+                isinstance(key, str) and isinstance(value, str) for key, value in mapping.items()
+            ):
+                raise ValueError("Alert labels and annotations must contain strings")
+        for field in ("status", "fingerprint", "startsAt", "valueString"):
+            if field in alert and not isinstance(alert[field], str):
+                raise ValueError("Invalid alert text field")
+        if alert.get("status", "firing") not in ("firing", "resolved"):
+            raise ValueError("Invalid alert status")
+    return payload
+
+
 def publish_alerts(payload: dict[str, Any]) -> int:
     """Map a Grafana webhook payload to MQTT notifications. Returns count."""
+    payload = _validate_payload(payload)
     received = payload.get("alerts") or []
     alerts = coalesce_datasource_alerts(received)
     for alert in alerts:
@@ -313,19 +342,40 @@ def publish_alerts(payload: dict[str, Any]) -> int:
 class Handler(BaseHTTPRequestHandler):
     """HTTP endpoints for Grafana webhooks and liveness checks."""
 
+    timeout = 10
+
     def do_POST(self) -> None:  # pylint: disable=invalid-name  # noqa: N802
         """Accept a Grafana webhook payload on /grafana."""
         if self.path != "/grafana":
             self.send_error(404)
             return
-        length = int(self.headers.get("Content-Length", 0))
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get("Transfer-Encoding") or len(lengths) != 1:
+            self.send_error(400, "A single Content-Length is required")
+            return
+        raw_length = lengths[0]
+        if not raw_length.isascii() or not raw_length.isdecimal():
+            self.send_error(400, "Invalid Content-Length")
+            return
+        # Check textual size before conversion, including Python's integer limit.
+        if len(raw_length) > 7 or int(raw_length) > MAX_WEBHOOK_BYTES:
+            self.send_error(413, "Webhook exceeds 1 MiB")
+            return
+        length = int(raw_length)
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ValueError("Incomplete webhook")
+            payload = _validate_payload(json.loads(body or b"{}"))
             n = publish_alerts(payload)
             log.info("Webhook: %d alert(s), status=%s", n, payload.get("status"))
             self.send_response(200)
-        except (ValueError, KeyError) as e:
-            log.error("Bad webhook payload: %s", e)
+        except TimeoutError:
+            self.send_error(408, "Webhook read timed out")
+            return
+        except (ValueError, RecursionError):
+            # Parser exceptions can contain untrusted data; keep diagnostics generic.
+            log.warning("Rejected malformed webhook payload")
             self.send_response(400)
         self.end_headers()
 

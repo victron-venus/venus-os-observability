@@ -6,9 +6,16 @@ from unittest.mock import MagicMock
 import pytest
 from opentelemetry.metrics import Meter
 
+
 # Mock D-Bus and GLib modules that aren't available on macOS
 # Must be done BEFORE any imports that might trigger gi
-sys.modules["dbus"] = MagicMock()
+class DBusTestException(Exception):
+    """A real exception class so mocked failures exercise production handlers."""
+
+
+dbus_mock = MagicMock()
+dbus_mock.DBusException = DBusTestException
+sys.modules["dbus"] = dbus_mock
 sys.modules["dbus.mainloop"] = MagicMock()
 sys.modules["dbus.mainloop.glib"] = MagicMock()
 sys.modules["gi"] = MagicMock()

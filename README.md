@@ -1,5 +1,7 @@
 # Venus OS Observability
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15457/badge)](https://www.bestpractices.dev/projects/15457)
+
 OpenTelemetry/Prometheus observability for Victron Venus OS: D-Bus signal tracing, inverter metrics export, optional application correlation helpers, and a separate Grafana alert relay.
 
 ## Python runtime
@@ -29,6 +31,8 @@ graph LR
     P -->|Configured alert webhook| R[Separate alert-mqtt-bridge]
     R --> M[MQTT banners / SMTP / Telegram]
 ```
+
+D-Bus observations feed metrics and optional spans. Prometheus reads the metrics; configured collectors receive spans. The separate relay receives Grafana alerts and forwards notifications to MQTT and optional email/Telegram destinations. The arrows above describe observation and notification, not physical control.
 
 ## Features
 
@@ -424,15 +428,11 @@ The site policy and rollout instructions are documented above.
 ## Development
 
 ```bash
-# Install deps
-pip install -e ".[dev]"
+# Create a locked, isolated check environment
+bash scripts/ci.sh --install
 
-# Run tests
-pytest
-
-# Lint
-ruff check src tests
-mypy src/venus_observability
+# Lint, types and tests
+bash scripts/ci.sh
 ```
 
 ## License
@@ -456,6 +456,9 @@ MIT
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports, development checks and pull requests,
 [SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment trust boundaries,
+[GOVERNANCE.md](GOVERNANCE.md) for responsibilities and continuity limits,
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for participation,
+[ROADMAP.md](ROADMAP.md) for priorities,
 and the [OpenSSF evidence index](docs/openssf-evidence.md) for assessment references and remaining verification.
 
 The alert relay verifies exact certificate key sizes for SMTP STARTTLS and Telegram HTTPS.

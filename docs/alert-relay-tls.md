@@ -56,3 +56,9 @@ are synthetic and no real email, Telegram messages or device commands are sent.
 These checks cover the two outbound alert channels. They do not add MQTT TLS,
 authentication to the incoming webhook, or protections to an external proxy or
 TLS terminator. They do not establish a whole-project OpenSSF assessment.
+
+## Inbound webhook boundary
+
+`POST /grafana` accepts a JSON object with an optional `alerts` array (at most 1000 entries). Each alert is an object; `labels` and `annotations`, if present, are string-to-string maps. `fingerprint`, `startsAt` and `valueString` are strings; supplied status values are `firing` or `resolved`. Unknown fields are retained/ignored for Grafana compatibility. The whole batch is validated before notifications start. An omitted alerts array is an empty batch; null or wrongly typed fields are rejected.
+
+HTTP requires one nonnegative decimal `Content-Length` of at most 1 MiB and no `Transfer-Encoding`. Invalid shape/JSON/length returns 400, oversize returns 413, and body read timeout returns 408. The read timeout is 10 seconds. `/health` returns JSON MQTT connection state. Input rejection does not authenticate a sender or guarantee delivery; restrict access to trusted Grafana instances and provide network-level rate limits.
