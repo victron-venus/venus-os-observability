@@ -319,18 +319,22 @@ class VictronServiceDiscovery:
 
     def _introspect_service(self, service: str) -> list[str]:
         """Introspect a service to find object paths."""
+        import xml.etree.ElementTree as ET  # nosec B405 - bounded text, entities rejected below
+
         paths = []
         try:
             obj = self.bus.get_object(service, "/")
             xml = obj.Introspect(dbus_interface="org.freedesktop.DBus.Introspectable")
-            import xml.etree.ElementTree as ET
-
-            root = ET.fromstring(xml)
+            if not isinstance(xml, str) or len(xml) > 1024 * 1024 or "<!ENTITY" in xml.upper():
+                return []
+            # ElementTree does not fetch an external DTD. Preserve standard D-Bus
+            # DOCTYPE declarations but reject internal entities before parsing.
+            root = ET.fromstring(xml)  # nosec B314 - bounded text, no entity declarations
             for node in root.findall(".//node"):
                 node_name = node.get("name")
                 if node_name:
                     paths.append(f"/{node_name}")
-        except dbus.DBusException:
+        except (dbus.DBusException, ET.ParseError):
             pass
         return paths
 
