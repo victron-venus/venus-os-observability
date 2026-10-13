@@ -6,6 +6,7 @@
 
 - Bound and validate Grafana webhook bodies and entire alert batches before forwarding notifications; document governance, security evidence and remaining OpenSSF requirements.
 - Reject oversized, entity-bearing or malformed D-Bus introspection XML without interrupting service discovery.
+- Close alert TLS sockets after fatal handshake errors while preserving nonblocking retries.
 - Verify SMTP STARTTLS certificates and reject weak alert-relay TLS keys before sending credentials or alert data.
 - Add explicit HTTPS OTLP/HTTP export with certificate and key checks; reject HTTPS gRPC with migration guidance.
 - Verify locked Python dependency hashes across CI, packaging and container builds, retaining the supported Paho MQTT API.

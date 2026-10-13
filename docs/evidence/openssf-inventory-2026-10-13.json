@@ -102,12 +102,12 @@
     "ruff": "pass",
     "mypy": "pass, 42 source files",
     "pytest": {
-      "passed": 306,
-      "known_paho_deprecation_warnings": 88,
+      "passed": 309,
+      "known_paho_deprecation_warnings": 91,
       "command": "python -m pytest tests/ --cov=. --cov-fail-under=80",
-      "reported_statements": 1469,
-      "covered_statements": 1290,
-      "percent": 87.81484002722941,
+      "reported_statements": 1471,
+      "covered_statements": 1292,
+      "percent": 87.83140720598233,
       "scope": "Partial imported/discoverable Python coverage, excludes tests; not a whole-project Silver statement coverage claim"
     },
     "release_unittests": {
@@ -126,6 +126,7 @@
     "src/venus_observability/dbus_owners.py": "76625d5a8c03bbd003a5316e83a3cd0942762a81b0b34fa45a7baa1bb59ae832",
     "src/venus_observability/metrics.py": "c72d577b87fcc637d29af92939fdd5c11f83f7887dd853be341916dc79d1e307",
     "src/venus_observability/otlp.py": "3ac96841c96b4fd34b66b9ef5b19b1180c6031f0423f717045ef282c0428e12c",
-    "alert-mqtt-bridge/relay.py": "71bda452fabfc828dff42ab0b42ad815d8d22d57a8bc6e74971f771a598d5192"
+    "alert-mqtt-bridge/relay.py": "71bda452fabfc828dff42ab0b42ad815d8d22d57a8bc6e74971f771a598d5192",
+    "alert-mqtt-bridge/tls_policy.py": "8961b32b842ce92477782fbe8cf8c83c3bb509857581b11c5fa696a084009448"
   }
 }

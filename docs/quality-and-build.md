@@ -20,7 +20,7 @@ Security validation uses `bash scripts/ci.sh security` with the declared Bandit 
 
 GitHub rulesets require CI, CodeQL and pull-request review; automated review is not a second human maintainer.
 
-TLS tests use synthetic local SMTP/HTTPS peers and disposable certificates, including incorrect hostnames, untrusted issuers and undersized leaf/intermediate/root keys. Installer tests operate under temporary roots. They send no real alerts and do not deploy to devices. The public [Actions history](https://github.com/victron-venus/venus-os-observability/actions) records source-specific results.
+TLS tests use synthetic local SMTP/HTTPS peers and disposable certificates, including incorrect hostnames, untrusted issuers and undersized leaf/intermediate/root keys. Socket lifetime tests verify closure after fatal handshake errors and preservation for nonblocking read/write retries. Installer tests operate under temporary roots. They send no real alerts and do not deploy to devices. The public [Actions history](https://github.com/victron-venus/venus-os-observability/actions) records source-specific results.
 
 ## Build and installation scope
 
