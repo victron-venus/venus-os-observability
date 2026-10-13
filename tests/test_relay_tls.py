@@ -415,6 +415,7 @@ def test_tls_socket_lifetime_after_handshake_error(
         raise error("synthetic handshake outcome")
 
     context = tls_policy.verified_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     left, right = socket.socketpair()
     with (
         right,
