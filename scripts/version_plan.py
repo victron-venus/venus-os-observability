@@ -31,12 +31,15 @@ import subprocess  # nosec B404
 import sys
 import tarfile
 import tempfile
-import tomllib
 import zipfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
-from release_control import atomic_write_bytes
+import tomllib
+if __package__:
+    from .release_control import atomic_write_bytes
+else:
+    from release_control import atomic_write_bytes
 
 BASE = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\Z", re.ASCII)
 SHA = re.compile(r"[0-9a-f]{40}\Z", re.ASCII)
@@ -286,7 +289,7 @@ def _identity(base, channel, sequence):
         # Validate the calendar fields, not just their width.
         try:
             datetime.strptime(sequence.split(".", 1)[0], "%Y%m%d%H%M%S").replace(
-                tzinfo=UTC
+                tzinfo=timezone.utc
             )
         except ValueError as error:
             raise VersionError("Invalid nightly UTC timestamp") from error

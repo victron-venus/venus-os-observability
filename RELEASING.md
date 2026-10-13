@@ -49,9 +49,16 @@ Nightly and beta are previews; neither is directly promotable to stable. An RC
 may be requested without a previous beta. Channel order is a workflow policy,
 not a comparison of tag strings. Declared adapters map the saved full version to each package format. Native OS fields may retain the numeric base while the application embeds its full identity. RC packages under promote-bytes already use the final base; their original candidate identity remains provenance.
 
+
+
+Once the committed base has a stable tag, automatic push betas report
+`version-required`: quality and security checks still run, while packaging and
+publication are skipped. Prepare the next committed base through a reviewed PR.
+Explicit beta/RC requests still reject an occupied base; nightlies are unchanged.
+
 ## Required validation and evidence
 
-1. The aggregate **CI gate** requires every workflow declared in the policy to
+1. The aggregate **CI gate** requires every workflow selected by the source policy to
    succeed. Failed, missing, canceled or skipped required checks block the gate.
 2. Candidate publication additionally requires the complete platform build matrix
    and **Release gate**. Artifacts from a partially successful matrix are not a
@@ -143,10 +150,6 @@ review together with the corresponding workflow changes. Update the toolkit
 template and `.release-policy.json`, then regenerate and review this document and
 the runbook. The README links here rather than duplicating the release procedure.
 
-## Release-candidate fuzz gate
+## Release-candidate fuzzing
 
-Public RCs run the shared, bounded fuzz gate declared in `.github/fuzz.json`.
-A failing campaign blocks that RC; fix and reissue an RC rather than bypassing it.
-Beta, pull-request, push and scheduled workflows do not start fuzz campaigns.
-Stable promotion uses the accepted RC source and evidence. See
-[the full fuzzing guide](docs/fuzzing.md) for target scope, isolation, receipts and reproduction.
+Every RC must pass bounded, network-isolated fuzz campaigns against the exact candidate source. The release inventory includes the report and its version-plan receipt. PRs, betas, nightlies and stable builds do not run these campaigns; stable qualification verifies the accepted RC evidence. See [the shared fuzzing contract](docs/rc-fuzzing.md) and this project's `.github/fuzz.json` for targets and budgets.

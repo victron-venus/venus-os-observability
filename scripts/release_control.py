@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# Vendored release toolkit; change the toolkit source, then render again.
+# ruff: noqa
+# mypy: ignore-errors
+# pylint: skip-file
+# fmt: off
 """Publish candidates and promote checked RCs inside the guarded Actions workflow."""
 
 # Keep the audited engine self-contained when vendored into application repos.
@@ -13,6 +18,7 @@ import hashlib
 import io
 import json
 import os
+import random
 import re
 import stat
 
@@ -23,7 +29,7 @@ import tempfile
 import time
 import zipfile
 from collections.abc import Iterable, Iterator, Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, TypedDict, cast
 from urllib.parse import quote, unquote
@@ -49,6 +55,23 @@ JSONObject = dict[str, object]
 ReleaseSnapshot = tuple[JSONObject, JSONObject, list[JSONObject]]
 ASSET_RESTRICTIONS: tuple[AssetRestriction, ...]
 ASSET_RESTRICTIONS = ()
+RELEASE_SIGNATURES_REQUIRED = False
+
+
+def verify_required_signatures(directory: Path, repo: str, sha: str) -> None:
+    """Fail closed before publication when this reviewed consumer requires signing."""
+    if not RELEASE_SIGNATURES_REQUIRED:
+        return
+    # Only signed consumers vendor this optional verifier, from the same checkout.
+    if __package__:
+        from .release_signing import read_json, verify  # pylint: disable=import-outside-toplevel
+    else:
+        from release_signing import read_json, verify  # pylint: disable=import-outside-toplevel
+
+    policy = read_json(Path(POLICY))
+    if policy.get("repository") != repo or policy.get("sign_releases") is not True:
+        raise ReleaseError("Trusted release-signing policy does not match this repository")
+    verify(directory, policy, sha)
 VERSION_PATTERN = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
 VERSION_RE = re.compile(VERSION_PATTERN, re.ASCII)
 TAG_RE = re.compile(
@@ -84,6 +107,8 @@ NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,199}\Z")
 REPO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 ASSET_CHUNK_SIZE = 1024 * 1024
 ASSET_DOWNLOAD_TIMEOUT = 900
+API_READ_TIMEOUT = 30
+API_READ_ATTEMPTS = 3
 
 
 class ReleaseError(RuntimeError):
@@ -212,25 +237,20 @@ def github_http_response(stdout: bytes, paginated: bool = False) -> tuple[int, b
     gh normalizes those server-generated objects (including duplicate keys);
     nonpaginated bodies retain their exact bytes and strict JSON validation.
     """
-
     def read_head(data: bytes) -> tuple[int, bytes]:
         separator = re.search(rb"\r?\n\r?\n", data)
         if separator is None:
             raise GitHubError("GitHub response headers are missing or truncated")
-        lines = data[: separator.start()].splitlines()
-        status = (
-            re.fullmatch(
-                rb"HTTP/(?:1\.[01]|2(?:\.0)?) ([1-5]\d{2})(?: [^\r\n]*)?", lines[0]
-            )
-            if lines
-            else None
-        )
+        lines = data[:separator.start()].splitlines()
+        status = re.fullmatch(
+            rb"HTTP/(?:1\.[01]|2(?:\.0)?) ([1-5]\d{2})(?: [^\r\n]*)?", lines[0]
+        ) if lines else None
         if status is None or any(
             not re.fullmatch(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+:[^\r\n]*", line)
             for line in lines[1:]
         ):
             raise GitHubError("GitHub response headers are invalid")
-        return int(status.group(1)), data[separator.end() :]
+        return int(status.group(1)), data[separator.end():]
 
     status, body = read_head(stdout)
     if not paginated:
@@ -258,9 +278,7 @@ def github_http_response(stdout: bytes, paginated: bool = False) -> tuple[int, b
         separator = re.compile(r"\r?\n\r?\n").search(text, position)
         if separator is None:
             raise GitHubError("GitHub response headers are missing or truncated")
-        header = text[position : separator.end()].encode(
-            "utf-8", errors="surrogateescape"
-        )
+        header = text[position:separator.end()].encode("utf-8", errors="surrogateescape")
         status, _ = read_head(header)
         position = separator.end()
     # A failed page invalidates every preceding page from the same attempt.
@@ -340,8 +358,7 @@ class GitHub:
 
     @staticmethod
     def response(
-        result: subprocess.CompletedProcess[bytes],
-        operation: str = "",
+        result: subprocess.CompletedProcess[bytes], operation: str = "",
         http: tuple[int, bytes] | None = None,
     ) -> bytes:
         """Translate a completed fixed-form command without retrying failed writes."""
@@ -386,6 +403,8 @@ class GitHub:
             )
         modes = {
             "json": [],
+            # Canonical JSON framing prevents a malformed page body from spoofing
+            # the next --include HTTP header when a later request fails.
             "pages": ["--paginate", "--jq", "tojson"],
             "asset": ["-H", "Accept: application/octet-stream"],
         }
@@ -402,17 +421,15 @@ class GitHub:
             "PUT": ["--method", "PUT"],
         }[method]
         command = [
-            "gh",
-            "api",
-            "--hostname",
-            GITHUB_HOSTNAME,
-            "--include",
-            *method_args,
-            *modes[mode],
+            "gh", "api", "--hostname", GITHUB_HOSTNAME, "--include",
+            *method_args, *modes[mode],
             *(["--input", "-"] if body is not None else []),
-            "--",
-            endpoint,
+            "--", endpoint,
         ]
+        # Metadata is small and replayable. Binary transfers retain their own
+        # timeout/cleanup policy; publication writes must never be replayed.
+        if method == "GET" and mode != "asset" and not path.endswith("/zip"):
+            return self._metadata_read(command, endpoint, mode == "pages")
         # Developer/CI toolchain selected by the invoking operator via PATH.
         result = subprocess.run(  # nosec B603
             command,
@@ -420,11 +437,37 @@ class GitHub:
             capture_output=True,
             check=False,
         )
-        return self.response(
-            result,
-            f"{method} {endpoint}",
-            github_http_response(result.stdout, mode == "pages"),
-        )
+        return self.response(result, f"{method} {endpoint}", github_http_response(result.stdout))
+
+    def _metadata_read(self, command: list[str], endpoint: str, paginated: bool = False) -> bytes:
+        """Retry transient GET failures for at most three 30-second attempts.
+
+        Jitter adds at most six seconds total. Authentication, authorization,
+        rate limits and missing resources keep their original fail-closed result.
+        A failed paginated response is discarded before replaying the whole read.
+        """
+        for attempt in range(API_READ_ATTEMPTS):
+            try:
+                result = subprocess.run(  # nosec B603
+                    command, input=None, capture_output=True, check=False,
+                    timeout=API_READ_TIMEOUT,
+                )
+            except subprocess.TimeoutExpired as error:
+                if attempt == API_READ_ATTEMPTS - 1:
+                    raise GitHubError(
+                        f"GET {endpoint}: metadata read timed out after "
+                        f"{API_READ_ATTEMPTS} attempts"
+                    ) from error
+            else:
+                http = github_http_response(result.stdout, paginated)
+                transient = (
+                    result.returncode and http[0] in {500, 502, 503, 504}
+                )
+                if not result.returncode or not transient or attempt == API_READ_ATTEMPTS - 1:
+                    return self.response(result, f"GET {endpoint}", http)
+            # Scheduling jitter is not used for security decisions.
+            time.sleep(random.uniform(1, 2 ** (attempt + 1)))  # nosec B311
+        raise AssertionError("Metadata retry loop must return or raise")
 
     def api(
         self, path: str, method: str = "GET", body: JSONObject | None = None
@@ -558,6 +601,26 @@ def require_release_policy(policy: object, repo: str, qualified: bool) -> None:
         "Source policy repository mismatch",
     )
     require(policy.get("mode") == "release", "Source policy mode must be release")
+    if "fuzzing" in policy:
+        if __package__:
+            from .release_fuzz import configuration
+        else:
+            from release_fuzz import configuration
+
+        try:
+            configuration(policy)
+        except ValueError as error:
+            raise ReleaseError(str(error)) from error
+    if "channel_validation_workflows" in policy:
+        if __package__:
+            from .release_validation import channel_workflows
+        else:
+            from release_validation import channel_workflows
+
+        try:
+            channel_workflows(policy)
+        except ValueError as error:
+            raise ReleaseError(str(error)) from error
     for field in ("release_blockers", "stable_blockers"):
         blockers = policy.get(field, [])
         require(
@@ -570,6 +633,92 @@ def require_release_policy(policy: object, repo: str, qualified: bool) -> None:
                 not blockers,
                 f"Source policy has unresolved {field}; create a new RC after resolving them",
             )
+
+
+def validation_profile(policy: JSONObject, channel: str) -> JSONObject | None:
+    """Keep legacy policies self-contained and require explicit new profiles."""
+    if "channel_validation_workflows" not in policy:
+        return None
+    if __package__:
+        from .release_validation import profile
+    else:
+        from release_validation import profile
+
+    try:
+        return profile(policy, channel)
+    except ValueError as error:
+        raise ReleaseError(str(error)) from error
+
+
+def validate_validation_manifest(manifest: JSONObject) -> None:
+    """A candidate's profile must match the policy frozen at its source SHA."""
+    policy = cast(JSONObject, cast(JSONObject, manifest["source_policy"])["data"])
+    expected = validation_profile(policy, cast(str, manifest["channel"]))
+    require(
+        json_bytes(manifest.get("validation_profile")) == json_bytes(expected),
+        "Manifest validation profile differs from its source policy/channel",
+    )
+    if "fuzzing" in policy:
+        if __package__:
+            from .release_fuzz import profile
+        else:
+            from release_fuzz import profile
+
+        require(
+            json_bytes(manifest.get("fuzzing_profile")) == json_bytes(profile(policy, cast(str, manifest["channel"]))),
+            "Manifest fuzzing profile differs from its source policy/channel",
+        )
+        if manifest["channel"] == "rc":
+            assets = {item["name"]: item for item in cast(list[JSONObject], manifest["assets"])}
+            receipt = assets.get("release-inputs-fuzz.json", {})
+            require(
+                "fuzz-report.json" in assets and bool(receipt)
+                and manifest.get("validation_receipts") == [{"name": "release-inputs-fuzz.json", "sha256": receipt.get("sha256")}],
+                "RC fuzz validation evidence is absent from the immutable asset inventory",
+            )
+
+
+def require_current_fuzzing(gh: GitHub, candidate_policy: JSONObject, current_sha: str) -> None:
+    """An adopted project cannot qualify an older RC that predates fuzzing."""
+    current = cast(JSONObject, source_policy_snapshot(gh, current_sha)["data"])
+    if "fuzzing" in current:
+        if __package__:
+            from .release_fuzz import configuration
+        else:
+            from release_fuzz import configuration
+
+        require(configuration(candidate_policy) is not None,
+                "Current release policy requires fuzzing; create a new RC after adoption")
+
+
+def validate_validation_run(
+    gh: GitHub, run: JSONObject, policy: JSONObject, channel: str
+) -> None:
+    """Require the selected profile and CI gate in the exact run attempt."""
+    has_profile = validation_profile(policy, channel) is not None
+    if not has_profile and "fuzzing" not in policy:
+        return
+    if __package__:
+        from .release_validation import check_run_jobs
+    else:
+        from release_validation import check_run_jobs
+
+    jobs = gh.pages(
+        f"actions/runs/{positive(run.get('id'), 'run ID')}/attempts/{positive(run.get('run_attempt'), 'run attempt')}/jobs",
+        "jobs",
+    )
+    try:
+        if has_profile:
+            check_run_jobs(jobs, channel, cast(str, run["head_sha"]))
+        if "fuzzing" in policy:
+            if __package__:
+                from .release_fuzz import check_run_jobs as check_fuzz_jobs
+            else:
+                from release_fuzz import check_run_jobs as check_fuzz_jobs
+
+            check_fuzz_jobs(jobs, channel, cast(str, run["head_sha"]))
+    except ValueError as error:
+        raise ReleaseError(str(error)) from error
 
 
 def source_policy_snapshot(gh: GitHub, sha: str) -> JSONObject:
@@ -1239,12 +1388,7 @@ def _release_headings(text: str) -> list[tuple[int, str, int, int]]:
             and heading[level : level + 1] in ("", " ", "\t", "\r", "\n")
         ):
             headings.append(
-                (
-                    level,
-                    _release_heading_title(heading[level:]),
-                    offset,
-                    offset + len(line),
-                )
+                (level, _release_heading_title(heading[level:]), offset, offset + len(line))
             )
         offset += len(line)
     return headings
@@ -1404,6 +1548,7 @@ def _publish_prepared(
     Callers that maintain publication state prepare notes before their first
     persistent write. Keep mutable tag/workflow authorization checks here too.
     """
+    verify_required_signatures(directory, gh.repo, sha)
     reject_restricted_assets(path.name for path in directory.iterdir())
     ensure_absent(gh, tag)
     check_workflow_publication(gh, sha)
@@ -1531,7 +1676,7 @@ def candidate(args: argparse.Namespace) -> JSONObject:
         # Once a base version is final, further candidates would mislabel new
         # code as an already released version. Nightlies retain run identities.
         ensure_absent(gh, f"v{base_version}")
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     tag = candidate_tag(
         gh, args.channel, base_version, run_id, attempt, args.sequence, now
     )
@@ -1612,6 +1757,28 @@ def _validate_manifest_assets(manifest: JSONObject) -> None:
         )
 
 
+def _validate_manifest_plan(manifest: JSONObject, base_version: str) -> None:
+    # Optional imports preserve the standalone legacy engine contract.
+    # pylint: disable-next=import-outside-toplevel
+    if __package__:
+        from .version_plan import plan_digest, validate_plan
+    else:
+        from version_plan import plan_digest, validate_plan
+
+    plan = validate_plan(
+        manifest.get("version_plan"),
+        cast(JSONObject, cast(JSONObject, manifest["source_policy"])["data"]),
+        cast(str, manifest["source_sha"]),
+    )
+    require(
+        plan["tag"] == manifest["tag"]
+        and plan["channel"] == manifest["channel"]
+        and plan["base_version"] == base_version
+        and manifest.get("plan_sha256") == plan_digest(plan),
+        "Manifest differs from the frozen version plan",
+    )
+
+
 # pylint: disable-next=too-many-locals
 def validate_manifest(
     raw: bytes, repo: str, rc_tag: str, allow_final: bool = False
@@ -1664,26 +1831,12 @@ def validate_manifest(
     positive(manifest.get("run_id"), "manifest run ID")
     positive(manifest.get("run_attempt"), "manifest run attempt")
     validate_policy_snapshot(manifest.get("source_policy"), repo)
+    validate_validation_manifest(manifest)
     versioning = cast(
         JSONObject, cast(JSONObject, manifest["source_policy"])["data"]
     ).get("versioning")
     if versioning:
-        # Optional imports preserve the standalone legacy engine contract.
-        # pylint: disable-next=import-outside-toplevel
-        from version_plan import plan_digest, validate_plan
-
-        plan = validate_plan(
-            manifest.get("version_plan"),
-            cast(JSONObject, cast(JSONObject, manifest["source_policy"])["data"]),
-            cast(str, manifest["source_sha"]),
-        )
-        require(
-            plan["tag"] == manifest["tag"]
-            and plan["channel"] == manifest["channel"]
-            and plan["base_version"] == base_version
-            and manifest.get("plan_sha256") == plan_digest(plan),
-            "Manifest differs from the frozen version plan",
-        )
+        _validate_manifest_plan(manifest, base_version)
     if final:
         versioning = cast(JSONObject, versioning)
         require(
@@ -1880,6 +2033,7 @@ def promote(args: argparse.Namespace) -> JSONObject:
     require_release_policy(
         cast(JSONObject, policy_snapshot["data"]), gh.repo, qualified=True
     )
+    require_current_fuzzing(gh, cast(JSONObject, policy_snapshot["data"]), checked_out_sha())
     require(
         cast(
             JSONObject, cast(JSONObject, policy_snapshot["data"]).get("versioning", {})
@@ -1889,7 +2043,10 @@ def promote(args: argparse.Namespace) -> JSONObject:
     )
     if manifest.get("version_plan"):
         # pylint: disable-next=import-outside-toplevel
-        from release_state import verify_promotion_order
+        if __package__:
+            from .release_state import verify_promotion_order
+        else:
+            from release_state import verify_promotion_order
 
         verify_promotion_order(gh, cast(JSONObject, manifest["version_plan"]))
     require(
@@ -1905,6 +2062,7 @@ def promote(args: argparse.Namespace) -> JSONObject:
         "Candidate and promotion must use separate runs",
     )
     source_run = cast(JSONObject, gh.api(f"actions/runs/{manifest['run_id']}"))
+    validate_validation_run(gh, source_run, cast(JSONObject, policy_snapshot["data"]), "rc")
     require(source_run.get("id") == manifest["run_id"], "Source run identity mismatch")
     validate_run(
         gh,
@@ -1956,8 +2114,10 @@ def promote(args: argparse.Namespace) -> JSONObject:
             == snapshot_identity(initial),
             "Candidate changed during verification",
         )
+        verify_required_signatures(stage, gh.repo, cast(str, manifest["source_sha"]))
         # Recheck mutable authorization/provenance just before the first write.
         latest_run = cast(JSONObject, gh.api(f"actions/runs/{manifest['run_id']}"))
+        validate_validation_run(gh, latest_run, cast(JSONObject, policy_snapshot["data"]), "rc")
         validate_run(
             gh,
             latest_run,
@@ -1981,7 +2141,10 @@ def promote(args: argparse.Namespace) -> JSONObject:
         if manifest.get("version_plan"):
             verify_promotion_order(gh, cast(JSONObject, manifest["version_plan"]))
             # pylint: disable-next=import-outside-toplevel
-            from release_state import begin_publication
+            if __package__:
+                from .release_state import begin_publication
+            else:
+                from release_state import begin_publication
 
             begin_publication(
                 gh,

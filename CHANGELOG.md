@@ -2,6 +2,10 @@
 
 ## [0.1.8] - Development line
 
+### Release candidate validation
+
+- Require bounded fuzzing on public release candidates, with source-bound reports and retained diagnostics; beta and ordinary CI do not run mutation campaigns.
+
 ### Changes
 
 - Verify SMTP STARTTLS certificates and reject weak alert-relay TLS keys before sending credentials or alert data.
