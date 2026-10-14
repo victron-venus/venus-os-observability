@@ -109,6 +109,8 @@ source = ["src/venus_observability"]
 omit = ["tests/*", "*/conftest.py"]
 
 [tool.coverage.report]
+# Keep the application coverage boundary when shared CI supplies --cov=.
+include = ["src/venus_observability/*"]
 exclude_lines = ["pragma: no cover", "def __repr__", "raise AssertionError", "raise NotImplementedError"]
 show_missing = true
 
