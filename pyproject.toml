@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "types-atheris>=3.1.0.20260630",
     "opentelemetry-exporter-otlp-proto-grpc>=1.28,<1.29",
     "opentelemetry-exporter-otlp-proto-http>=1.28,<1.29",
     "requests>=2.34.2",
@@ -108,6 +109,8 @@ source = ["src/venus_observability"]
 omit = ["tests/*", "*/conftest.py"]
 
 [tool.coverage.report]
+# Keep the application coverage boundary when shared CI supplies --cov=.
+include = ["src/venus_observability/*"]
 exclude_lines = ["pragma: no cover", "def __repr__", "raise AssertionError", "raise NotImplementedError"]
 show_missing = true
 

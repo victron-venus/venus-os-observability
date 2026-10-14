@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# Vendored release toolkit; change the toolkit source, then render again.
+# ruff: noqa
+# mypy: ignore-errors
+# pylint: skip-file
+# fmt: off
 """Stage only declared final upload files and bind them to frozen version inputs."""
 
 from __future__ import annotations
@@ -18,9 +23,15 @@ import sys
 from pathlib import Path
 from typing import cast
 
-import version_plan
-from release_version_adapter import resolve_plan_path
+if __package__:
+    from . import version_plan
+    from .release_version_adapter import resolve_plan_path
+else:
+    import version_plan
+    from release_version_adapter import resolve_plan_path
 
+
+DETACHED_PROVENANCE_REQUIRED = False
 
 def checked_payload_path(root: Path, matched: str) -> Path:
     """Reject payload paths that escape the checkout or contain symlinks."""
@@ -114,6 +125,13 @@ def write_staged_files(
     """Copy checked inputs and write the receipt into our new target directory."""
     for path in files.values():
         shutil.copy2(path, output / path.name)
+    if DETACHED_PROVENANCE_REQUIRED or policy.get("detached_provenance"):
+        if __package__:
+            from .release_provenance import verify_staged  # pylint: disable=import-outside-toplevel
+        else:
+            from release_provenance import verify_staged  # pylint: disable=import-outside-toplevel
+
+        verify_staged(output, policy, identity)
     metadata = inspect_staged_artifacts(output, files, policy, identity)
     receipt = output / f"release-inputs-{output.name}.json"
     # Repository-controlled argv; no shell interpolation or external command text.

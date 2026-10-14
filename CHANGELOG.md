@@ -2,6 +2,10 @@
 
 ## [0.1.8] - Development line
 
+### Release candidate validation
+
+- Require bounded fuzzing on public release candidates, with source-bound reports and retained diagnostics; beta and ordinary CI do not run mutation campaigns.
+
 ### Changes
 
 - Bound and validate Grafana webhook bodies and entire alert batches before forwarding notifications; document governance, security evidence and remaining OpenSSF requirements.

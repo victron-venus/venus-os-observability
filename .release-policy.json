@@ -101,9 +101,12 @@
         "value": "package"
       }
     ],
-    "toolkit_revision": "fca833a9da6b49116444ffd7ac6739e08f9cbc61"
+    "toolkit_revision": "5e413f80a4353d328b4529eae57992ac3987e2dd"
   },
   "single_entry_ci": true,
   "release_notes": "CHANGELOG.md",
-  "toolkit_revision": "991a03541e8f7dbee83e91cada11e6c70f6eb8cd"
+  "toolkit_revision": "5e413f80a4353d328b4529eae57992ac3987e2dd",
+  "fuzzing": {
+    "toolkit_ref": "5e413f80a4353d328b4529eae57992ac3987e2dd"
+  }
 }

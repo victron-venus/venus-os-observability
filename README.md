@@ -1,5 +1,6 @@
 # Venus OS Observability
 
+[![Fuzzing: RC only](https://img.shields.io/badge/Fuzzing-RC%20only-blue)](docs/fuzzing.md)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15457/badge)](https://www.bestpractices.dev/projects/15457)
 
 OpenTelemetry/Prometheus observability for Victron Venus OS: D-Bus signal tracing, inverter metrics export, optional application correlation helpers, and a separate Grafana alert relay.
@@ -463,3 +464,9 @@ and the [OpenSSF evidence index](docs/openssf-evidence.md) for assessment refere
 
 The alert relay verifies exact certificate key sizes for SMTP STARTTLS and Telegram HTTPS.
 See [alert relay TLS policy](docs/alert-relay-tls.md) for trusted CA, proxy and migration requirements.
+
+## Release-candidate fuzzing
+
+The real correlation-context and header propagation functions receive synthetic identifiers, including Unicode and punctuation. Header extraction must preserve explicitly supplied IDs and context tokens must restore prior state. No trace exporter, D-Bus subscription or network connection starts.
+
+[RC-only fuzzing policy, local reproduction and failure handling](docs/fuzzing.md).
