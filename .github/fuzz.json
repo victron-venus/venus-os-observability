@@ -29,7 +29,26 @@
         "-max_len=4096"
       ],
       "seconds": 60,
-      "corpus": "fuzz/corpus/correlation"
+      "corpus": "fuzz/corpus/correlation",
+      "instrumentation": [
+        {
+          "module": "venus_observability.correlation",
+          "functions": [
+            "set_correlation_id",
+            "get_correlation_id",
+            "inject_correlation_id_into_headers",
+            "extract_correlation_id_from_headers"
+          ]
+        }
+      ]
     }
+  ],
+  "preflight-paths": [
+    ".github/requirements-fuzz.in",
+    "Dockerfile",
+    "fuzz",
+    "pyproject.toml",
+    "src",
+    "uv.lock"
   ]
 }
