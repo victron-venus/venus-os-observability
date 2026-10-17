@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.10] - 2026-10-17
+
+### Changed
+
+- Make alert setup examples reusable and document source-bound RC fuzzing evidence.
+
+### Upgrade
+
+Preserve current configuration and monitoring data when following the normal upgrade procedure. Review example values before applying them; publication does not deploy the service.
+
+### Security
+
+This documentation maintenance release introduces no new runtime vulnerability fix or authentication policy. Existing validation and device acceptance remain required.
+
 ## [0.1.9] - 2026-10-14
 
 ### Changed
