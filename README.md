@@ -401,8 +401,8 @@ certificates must be corrected or given their proper CA trust before upgrading.
 Build from the repository root. Set `BRIDGE_ENV_FILE` to the private file,
 `GRAFANA_NETWORK` to a Docker network shared with Grafana, and `MQTT_HOST` to
 the broker reachable from that network. For an update, preserve the existing
-image/configuration and stop or replace the old container before starting another
-with the same name.
+image/configuration, then stop and remove the old container before starting another
+with the same name. A stopped container still reserves its name.
 
 ```bash
 : "${BRIDGE_ENV_FILE:?Set the path to the private environment file}"
@@ -423,8 +423,8 @@ contact point; it sends email through the bridge's SMTP configuration.
 1. Check a test notification first; test actual firing and recovery during a
    maintenance window as described in channel 2.5.
 2. Bridge log shows `Email sent: <alertname>`; check inbox AND spam folder.
-3. Brevo console → Transactional → Statistics shows per-message events
-   (delivered / blocked / rejected) — fastest place to diagnose rejects.
+3. Check the selected SMTP provider's delivery-events page, when available, for
+   per-message status (delivered / blocked / rejected).
 4. Optional scoring: send a test via the same relay to the address shown at
    <https://www.mail-tester.com>; aim for ≥9/10.
 
