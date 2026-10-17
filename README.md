@@ -282,8 +282,8 @@ automatically.
 
 1. In Telegram, open **@BotFather** (verified badge) and send `/newbot`.
 2. Answer two prompts:
-   - **name** — display name, anything, e.g. `Alvit Venus Alerts`
-   - **username** — must end in `bot`, e.g. `alvit_venus_alerts_bot`
+   - **name** — display name, anything, e.g. `Venus Alerts`
+   - **username** — choose an available username ending in `bot`
 3. BotFather replies with the **token**, format:
 
    ```
@@ -319,11 +319,10 @@ For a **group chat**: add the bot to the group, post one message there, then cal
 `getUpdates` again — the group's `chat.id` is negative (e.g. `-1001234567890`);
 use it as-is.
 
-#### 2.3 Wire the bridge (Synology)
+#### 2.3 Wire the bridge
 
-The reference installation uses the bridge for Telegram delivery. Configure
-that path explicitly rather than assuming a Grafana-native contact point is active. Append to
-`/volume1/docker/venus-alert-bridge/envfile` (chmod 600, outside git):
+Configure Telegram delivery in the bridge environment file. Keep that file
+outside Git with mode 600:
 
 ```
 TG_BOT_TOKEN=<your-bot-token>
@@ -368,19 +367,17 @@ flowchart LR
 
 #### 3.1 Provider setup (Brevo, one-time)
 
-1. Sign up at <https://www.brevo.com> (free tier: 300 emails/day, no card).
-2. **Senders & Domains → Senders → Add sender**: use your real mailbox
-   (e.g. a gmail address) and click the confirmation link Brevo emails you.
-   This skips domain/DKIM work entirely; trade-off: mail goes out "via brevo"
-   and may land in spam until you mark it as not-spam once.
-   (Better deliverability later: verify `alvit.2560801.xyz` under Domains,
-   copy the DKIM records into your DNS zone, send from that domain.)
-3. **SMTP & API → SMTP → Create new key**: note LOGIN and SECRET KEY.
+1. Create an account at <https://www.brevo.com> or use another SMTP relay
+   that supports STARTTLS. Check the provider's current limits and requirements.
+2. Verify a sender address or a domain you control using the provider's
+   instructions. Complete any required DNS authentication before sending alerts.
+3. Create SMTP credentials and record the relay hostname, port and login in
+   the private bridge environment file.
 
-#### 3.2 Bridge configuration (Synology)
+#### 3.2 Bridge configuration
 
-Secrets live in `/volume1/docker/venus-alert-bridge/envfile` (chmod 600,
-outside any git repo):
+Create a private environment file outside the repository (mode 600). The
+following values illustrate a Brevo relay; use your provider's settings:
 
 ```
 SMTP_HOST=smtp-relay.brevo.com
@@ -401,28 +398,33 @@ plaintext SMTP. If using a private CA, mount its CA bundle and set
 `SSL_CERT_FILE` to that file inside the container. Existing relays with invalid
 certificates must be corrected or given their proper CA trust before upgrading.
 
-Deploy/update the container:
+Build from the repository root. Set `BRIDGE_ENV_FILE` to the private file,
+`GRAFANA_NETWORK` to a Docker network shared with Grafana, and `MQTT_HOST` to
+the broker reachable from that network. For an update, preserve the existing
+image/configuration, then stop and remove the old container before starting another
+with the same name. A stopped container still reserves its name.
 
 ```bash
-cd /volume1/docker/venus-alert-bridge
-sudo docker build -t venus-alert-bridge:latest .
-sudo docker rename venus-alert-bridge venus-alert-bridge-old && sudo docker stop venus-alert-bridge-old
+: "${BRIDGE_ENV_FILE:?Set the path to the private environment file}"
+: "${GRAFANA_NETWORK:?Set the Docker network shared with Grafana}"
+: "${MQTT_HOST:?Set the MQTT broker hostname}"
+sudo docker build -t venus-alert-bridge:latest ./alert-mqtt-bridge
 sudo docker run -d --name venus-alert-bridge --restart unless-stopped \
-  --network inverter-monitoring_monitoring --network-alias venus-alert-bridge \
-  -e MQTT_HOST=192.168.160.150 --env-file envfile venus-alert-bridge:latest
+  --network "$GRAFANA_NETWORK" --network-alias venus-alert-bridge \
+  -e MQTT_HOST="$MQTT_HOST" --env-file "$BRIDGE_ENV_FILE" venus-alert-bridge:latest
 ```
 
-No Email contact point is needed in Grafana. The default policy and the
-site-specific nested policies send grouped webhooks to **MQTT bridge**.
-The site policy and rollout instructions are documented above.
+Configure a Grafana webhook contact point for the bridge and route the intended
+notification policies to it. This route does not need a separate Grafana Email
+contact point; it sends email through the bridge's SMTP configuration.
 
 #### 3.3 Verify
 
 1. Check a test notification first; test actual firing and recovery during a
    maintenance window as described in channel 2.5.
 2. Bridge log shows `Email sent: <alertname>`; check inbox AND spam folder.
-3. Brevo console → Transactional → Statistics shows per-message events
-   (delivered / blocked / rejected) — fastest place to diagnose rejects.
+3. Check the selected SMTP provider's delivery-events page, when available, for
+   per-message status (delivered / blocked / rejected).
 4. Optional scoring: send a test via the same relay to the address shown at
    <https://www.mail-tester.com>; aim for ≥9/10.
 
