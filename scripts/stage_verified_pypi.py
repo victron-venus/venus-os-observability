@@ -10,16 +10,17 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+from collections.abc import Callable
 from email.parser import BytesParser
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING or __package__:
     from .publish_verified import pypi_commands, verified_assets
-    from .release_control import GitHub, ReleaseError, digest, require
+    from .release_control import GitHub, JSONObject, ReleaseError, digest, require
 else:
     from publish_verified import pypi_commands, verified_assets
-    from release_control import GitHub, ReleaseError, digest, require
+    from release_control import GitHub, JSONObject, ReleaseError, digest, require
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "victron-venus/venus-os-observability"
@@ -89,10 +90,15 @@ def stage(tag: str, output: Path) -> str:
     require(policy["repository"] == REPOSITORY, "Unexpected publication repository")
     with tempfile.TemporaryDirectory(prefix="verified-pypi-source-") as temp:
         source = Path(temp)
-        manifest = verified_assets(GitHub(REPOSITORY), tag, source)
+        manifest = cast(Callable[[GitHub, str, Path], JSONObject], verified_assets)(
+            GitHub(REPOSITORY), tag, source
+        )
         # Reuse the vendored adapter's immutable-policy selection, without executing
         # its twine commands. The final uploader is the official OIDC action.
-        check_command = pypi_commands(policy, manifest, source)[0]
+        check_command = cast(
+            Callable[[JSONObject, JSONObject, Path], list[list[str]]],
+            pypi_commands,
+        )(policy, manifest, source)[0]
         require(
             check_command[:4] == ["python3", "-m", "twine", "check"],
             "Unexpected adapter",
@@ -104,7 +110,10 @@ def stage(tag: str, output: Path) -> str:
             and sum(path.name.endswith(".tar.gz") for path in selected) == 1,
             "Expected exactly one verified wheel and one sdist",
         )
-        expected = {asset["name"]: asset for asset in manifest["assets"]}
+        expected = {
+            cast(str, asset["name"]): asset
+            for asset in cast(list[JSONObject], manifest["assets"])
+        }
         files = []
         payloads = {}
         for path in selected:
@@ -112,7 +121,7 @@ def stage(tag: str, output: Path) -> str:
                 path.parent == source and path.is_file() and not path.is_symlink(),
                 "Invalid asset",
             )
-            check_metadata(path, manifest["version"])
+            check_metadata(path, cast(str, manifest["version"]))
             raw = path.read_bytes()
             asset = expected[path.name]
             require(
