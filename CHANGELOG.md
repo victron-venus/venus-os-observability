@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.11] - 2026-10-18
+
+### Fixed
+
+- Restore the Grafana dashboard as valid JSON and retain the documented dashboard preview.
+
+### Changed
+
+- Update the pre-commit development dependency to 4.7.0.
+
+### Upgrade
+
+Use the documented upgrade procedure and preserve configuration and monitoring data. Keep the previous immutable release for rollback.
+
+### Security
+
+This maintenance release preserves the existing security and release-validation requirements. Publication does not deploy the service or establish physical-device acceptance.
+
 ## [0.1.10] - 2026-10-17
 
 ### Changed
