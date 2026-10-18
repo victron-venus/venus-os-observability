@@ -5,6 +5,12 @@
 
 OpenTelemetry/Prometheus observability for Victron Venus OS: D-Bus signal tracing, inverter metrics export, optional application correlation helpers, and a separate Grafana alert relay.
 
+[![Grafana dashboard layout with synthetic demonstration data; this is not live installation telemetry. Click for the original screenshot.](docs/images/app-hero.png)](docs/images/venus-demo.jpg)
+
+*Grafana dashboard layout with synthetic demonstration data; this is not live installation telemetry. Click for the original screenshot.*
+
+[Image source and regeneration](docs/images/README.md).
+
 ## Python runtime
 
 Native Venus OS packages target **Python 3.12.x**. The audited Raspberry Pi 3
