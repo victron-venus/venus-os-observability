@@ -8,6 +8,7 @@
 
 ### Changed
 
+- Route Dependabot metadata approval through the trusted default branch while preserving the existing author and review policy.
 - Update the pre-commit development dependency to 4.7.0.
 
 ### Upgrade
