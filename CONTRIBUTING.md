@@ -38,3 +38,7 @@ Automated tests use mocks or controlled fixtures where available. A passing unit
 - [alert-mqtt-bridge](alert-mqtt-bridge)
 
 See [README.md](README.md) for acquisition, configuration and usage, and [the evidence index](docs/openssf-evidence.md) for the public development-process references.
+
+### Reproducing the CI dependency environment
+
+Run `bash scripts/ci.sh --install` to prepare `.venv-ci` from the committed `uv.lock`, then `bash scripts/ci.sh`. The installer uses `--locked` and fails if the project manifest and lock disagree. Update the lock deliberately with the dependency change; local validation must not silently select newer packages.

@@ -4,8 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python_bin="${CI_PYTHON:-$PWD/.venv-ci/bin/python}"
 if [[ "${1:-}" == --install ]]; then
-  uv venv .venv-ci --python 3.12.13
-  uv pip install --python "$python_bin" --require-hashes --only-binary :all: -r .github/requirements-ci.txt
+  UV_PROJECT_ENVIRONMENT=.venv-ci uv sync --locked --no-build --no-install-project --extra dev --group build --group security --python 3.12.13
   uv pip install --python "$python_bin" --no-deps --no-build-isolation --no-index -e .
   exit 0
 fi
