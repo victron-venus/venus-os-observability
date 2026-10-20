@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.12] - 2026-10-20
+
+### Changed
+
+- Refresh the immutable Ubuntu 24.04 container image and update Ruff to 0.17.1. Install local validation dependencies from the same uv lock used by CI.
+
+### Upgrade
+
+Use the existing update procedure, preserve local configuration and retain the previous immutable package for rollback. No configuration migration is required.
+
+### Security
+
+Required dependency, source and release checks remain enabled. This maintenance beta does not claim a new application vulnerability fix or device acceptance.
+
 ## [0.1.11] - 2026-10-18
 
 ### Fixed

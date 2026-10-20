@@ -1,5 +1,5 @@
 # Ubuntu 24.04 supplies Python 3.12 and matching native D-Bus/GI bindings.
-FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55 AS builder
+FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac AS builder
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -14,7 +14,7 @@ RUN python3 -m venv /opt/build-venv \
     && /opt/venv/bin/pip install --no-cache-dir --require-hashes --only-binary=:all: -r .github/requirements-runtime.txt \
     && /opt/venv/bin/pip install --no-cache-dir --no-deps --no-index /tmp/wheels/*.whl
 
-FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-dbus python3-gi ca-certificates \
     && rm -rf /var/lib/apt/lists/*
