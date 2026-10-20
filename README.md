@@ -436,6 +436,18 @@ contact point; it sends email through the bridge's SMTP configuration.
 
 ## Development
 
+For embedded use, `ObservabilityService.lifespan()` owns startup and shutdown.
+Stopping the service closes the Prometheus listening socket, joins its serving
+thread and shuts down both telemetry providers. Failed startup also releases
+components that were already created; repeated `stop()` calls are safe.
+
+The public `setup_telemetry()` helper still returns `(tracer_provider,
+meter_provider)`. Direct callers must shut down both providers; shutting down the
+meter provider also closes its HTTP server. This requires `prometheus-client`
+0.20 or newer (the lock already uses 0.26). OpenTelemetry's global tracer
+registration remains once per process: HTTP cleanup does not enable repeated
+global telemetry reconfiguration.
+
 ```bash
 # Create a locked, isolated check environment
 bash scripts/ci.sh --install

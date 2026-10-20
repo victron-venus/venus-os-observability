@@ -7,9 +7,11 @@ Provides OpenTelemetry initialization, D-Bus signal tracing, and Prometheus metr
 import logging
 import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from threading import Lock, Thread
 from types import FrameType
 from typing import Any
+from wsgiref.simple_server import WSGIServer
 
 from opentelemetry import trace
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
@@ -39,6 +41,40 @@ logger = logging.getLogger(__name__)
 _correlation_propagator: CorrelationIDPropagator | None = None
 
 
+class _PrometheusHTTPReader(PrometheusMetricReader):
+    """Keep the HTTP listener under the meter provider's shutdown ownership."""
+
+    def __init__(self) -> None:
+        self._http_server: tuple[WSGIServer, Thread] | None = None
+        self._http_lock = Lock()
+        self._http_closed = False
+        super().__init__()
+
+    def start_http_server(self, port: int) -> None:
+        with self._http_lock:
+            if self._http_closed or self._http_server is not None:
+                raise RuntimeError("Prometheus HTTP reader is already started or closed")
+            self._http_server = start_http_server(port)
+
+    def shutdown(self, timeout_millis: float = 30_000, **kwargs: Any) -> None:
+        with self._http_lock:
+            if self._http_closed:
+                return
+            self._http_closed = True
+            handle, self._http_server = self._http_server, None
+            # Every closer runs even if an earlier one raises. Stop accepting
+            # scrapes before unregistering the reader from the global registry.
+            with ExitStack() as cleanup:
+                cleanup.callback(super().shutdown, timeout_millis=timeout_millis, **kwargs)
+                if handle is not None:
+                    server, thread = handle
+                    cleanup.callback(thread.join, max(0, timeout_millis) / 1000)
+                    cleanup.callback(server.server_close)
+                    server.shutdown()
+            if handle is not None and handle[1].is_alive():
+                raise TimeoutError("Prometheus HTTP serving thread did not stop")
+
+
 def setup_telemetry(
     service_name: str = "venus-os-observability",
     otlp_endpoint: str | None = None,
@@ -53,44 +89,60 @@ def setup_telemetry(
         prometheus_port: Port for Prometheus metrics HTTP server
 
     Returns:
-        Tuple of (TracerProvider, MeterProvider)
+        Tuple of (TracerProvider, MeterProvider). Shut down both providers when
+        finished; MeterProvider.shutdown() also closes the Prometheus listener.
     """
     global _correlation_propagator
 
-    otlp_exporter = None
-    if otlp_endpoint:
-        from .otlp import create_exporter
+    rollback = ExitStack()
+    try:
+        # Transfer cleanup to each containing SDK object only after it accepts
+        # ownership, so failures during construction also release resources.
+        exporter_owner = ExitStack()
+        rollback.callback(exporter_owner.close)
+        otlp_exporter = None
+        if otlp_endpoint:
+            from .otlp import create_exporter
 
-        # Reject invalid transport configuration before registering global providers.
-        otlp_exporter = create_exporter(otlp_endpoint)
+            # Reject invalid transport configuration before global registration.
+            otlp_exporter = create_exporter(otlp_endpoint)
+            exporter_owner.callback(otlp_exporter.shutdown)
 
-    # Resource with service info
-    resource = Resource.create({SERVICE_NAME: service_name})
+        resource = Resource.create({SERVICE_NAME: service_name})
+        tracer_provider = TracerProvider(
+            resource=resource, sampler=None if otlp_endpoint else ALWAYS_OFF
+        )
+        rollback.callback(tracer_provider.shutdown)
+        if otlp_exporter is not None:
+            processor = BatchSpanProcessor(otlp_exporter)
+            exporter_owner.pop_all()
+            exporter_owner.callback(processor.shutdown)
+            tracer_provider.add_span_processor(processor)
+            exporter_owner.pop_all()
+            logger.info("OTLP trace exporter configured")
 
-    # Tracing
-    tracer_provider = TracerProvider(
-        resource=resource, sampler=None if otlp_endpoint else ALWAYS_OFF
-    )
-    trace.set_tracer_provider(tracer_provider)
+        prometheus_reader = _PrometheusHTTPReader()
+        reader_owner = ExitStack()
+        rollback.callback(reader_owner.close)
+        reader_owner.callback(prometheus_reader.shutdown)
+        meter_provider = MeterProvider(resource=resource, metric_readers=[prometheus_reader])
+        reader_owner.pop_all()
+        rollback.callback(meter_provider.shutdown)
+        prometheus_reader.start_http_server(prometheus_port)
+        logger.info("Prometheus metrics server started on port %d", prometheus_port)
 
-    if otlp_exporter is not None:
-        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-        logger.info("OTLP trace exporter configured")
-
-    # Metrics - Prometheus
-    prometheus_reader = PrometheusMetricReader()
-    meter_provider = MeterProvider(resource=resource, metric_readers=[prometheus_reader])
-
-    # Start Prometheus HTTP server
-    start_http_server(prometheus_port)
-    logger.info("Prometheus metrics server started on port %d", prometheus_port)
-
-    # Register custom correlation propagator
-    _correlation_propagator = CorrelationIDPropagator()
-    set_global_textmap(_correlation_propagator)
-
-    # Note: no automatic paho-mqtt instrumentation exists in OpenTelemetry contrib;
-    # correlation IDs are propagated explicitly via the CorrelationIDPropagator.
+        # Install global hooks only after locally owned resources are ready.
+        propagator = CorrelationIDPropagator()
+        set_global_textmap(propagator)
+        _correlation_propagator = propagator
+        trace.set_tracer_provider(tracer_provider)
+    except BaseException:
+        try:
+            rollback.close()
+        except BaseException:
+            logger.exception("Telemetry rollback failed")
+        raise
+    rollback.pop_all()
 
     return tracer_provider, meter_provider
 
@@ -117,41 +169,50 @@ class ObservabilityService:
 
     def start(self) -> None:
         """Start all observability components."""
+        if any(
+            component is not None
+            for component in (self._tracer_provider, self._meter_provider, self._dbus_listener)
+        ):
+            raise RuntimeError("Observability service is already started")
         logger.info("Starting %s observability service", self.service_name)
 
-        # Initialize telemetry
-        self._tracer_provider, self._meter_provider = setup_telemetry(
-            service_name=self.service_name,
-            otlp_endpoint=self.otlp_endpoint,
-            prometheus_port=self.prometheus_port,
-        )
+        try:
+            self._tracer_provider, self._meter_provider = setup_telemetry(
+                service_name=self.service_name,
+                otlp_endpoint=self.otlp_endpoint,
+                prometheus_port=self.prometheus_port,
+            )
+            self._metrics = VictronMetrics(self._meter_provider.get_meter(self.service_name))
+            self._dbus_listener = DBusSignalListener(
+                metrics=self._metrics,
+                tracer=self._tracer_provider.get_tracer(self.service_name),
+            )
 
-        # Initialize metrics
-        self._metrics = VictronMetrics(self._meter_provider.get_meter(self.service_name))
-
-        # Initialize D-Bus listener
-        self._dbus_listener = DBusSignalListener(
-            metrics=self._metrics,
-            tracer=self._tracer_provider.get_tracer(self.service_name),
-        )
-
-        # Subscribe to all Victron ItemsChanged signals (single global rule;
-        # signals are emitted at root path / with absolute item paths)
-        self._dbus_listener.subscribe_global()
-
-        # Start D-Bus listener
-        self._dbus_listener.start()
+            # ItemsChanged signals are emitted at / with absolute item paths.
+            self._dbus_listener.subscribe_global()
+            self._dbus_listener.start()
+        except BaseException:
+            try:
+                self.stop()
+            except BaseException:
+                logger.exception("Observability service rollback failed")
+            raise
         logger.info("Observability service started")
 
     def stop(self) -> None:
         """Stop all observability components."""
         logger.info("Stopping observability service")
-        if self._dbus_listener:
-            self._dbus_listener.stop()
-        if self._tracer_provider:
-            self._tracer_provider.shutdown()  # type: ignore[no-untyped-call]
-        if self._meter_provider:
-            self._meter_provider.shutdown()
+        listener, self._dbus_listener = self._dbus_listener, None
+        tracer, self._tracer_provider = self._tracer_provider, None
+        meter, self._meter_provider = self._meter_provider, None
+        self._metrics = None
+        with ExitStack() as cleanup:
+            if meter is not None:
+                cleanup.callback(meter.shutdown)
+            if tracer is not None:
+                cleanup.callback(tracer.shutdown)
+            if listener is not None:
+                cleanup.callback(listener.stop)
         logger.info("Observability service stopped")
 
     @contextmanager

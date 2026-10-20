@@ -29,7 +29,10 @@ from unittest.mock import MagicMock, patch
 for name in ('dbus', 'dbus.mainloop', 'dbus.mainloop.glib', 'gi', 'gi.repository'):
     sys.modules[name] = MagicMock()
 from venus_observability.__main__ import setup_telemetry
-with patch('venus_observability.__main__.start_http_server'):
+thread = MagicMock()
+thread.is_alive.return_value = False
+with patch('venus_observability.__main__.start_http_server',
+           return_value=(MagicMock(), thread)):
     trace, meter = setup_telemetry()
 assert 'venus_observability.otlp' not in sys.modules
 assert 'opentelemetry.exporter.otlp.proto.grpc.trace_exporter' not in sys.modules

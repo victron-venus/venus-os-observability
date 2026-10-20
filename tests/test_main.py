@@ -51,7 +51,7 @@ class TestSetupTelemetry:
             patch(
                 "opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"
             ) as mock_otlp_exporter_class,
-            patch("venus_observability.__main__.start_http_server") as mock_start_http_server,
+            patch("venus_observability.__main__._PrometheusHTTPReader") as mock_reader_class,
         ):
             mock_resource = MagicMock()
             mock_resource_create.return_value = mock_resource
@@ -63,7 +63,7 @@ class TestSetupTelemetry:
                 "tracer_provider_class": mock_tracer_provider_class,
                 "batch_span_processor": mock_batch_span_processor,
                 "otlp_exporter_class": mock_otlp_exporter_class,
-                "start_http_server": mock_start_http_server,
+                "reader": mock_reader_class.return_value,
                 "resource": mock_resource,
                 "tracer_provider": mock_tracer_provider,
             }
@@ -73,7 +73,6 @@ class TestSetupTelemetry:
         mock_meter_provider = MagicMock()
         with (
             patch("venus_observability.__main__.MeterProvider", return_value=mock_meter_provider),
-            patch("venus_observability.__main__.PrometheusMetricReader"),
         ):
             tracer_provider, meter_provider = setup_telemetry(
                 service_name="test-service",
@@ -83,7 +82,7 @@ class TestSetupTelemetry:
 
         assert tracer_provider is telemetry_mocks["tracer_provider"]
         assert meter_provider is mock_meter_provider
-        telemetry_mocks["start_http_server"].assert_called_once_with(9090)
+        telemetry_mocks["reader"].start_http_server.assert_called_once_with(9090)
         telemetry_mocks["set_tracer_provider"].assert_called_once_with(
             telemetry_mocks["tracer_provider"]
         )
@@ -99,7 +98,6 @@ class TestSetupTelemetry:
 
         with (
             patch("venus_observability.__main__.MeterProvider", return_value=mock_meter_provider),
-            patch("venus_observability.__main__.PrometheusMetricReader"),
         ):
             tracer_provider, meter_provider = setup_telemetry(
                 service_name="test-service",
@@ -171,15 +169,16 @@ class TestObservabilityService:
     def test_stop(self) -> None:
         """Test service stop."""
         service = ObservabilityService()
-        service._tracer_provider = MagicMock()
-        service._meter_provider = MagicMock()
-        service._dbus_listener = MagicMock()
+        tracer = service._tracer_provider = MagicMock()
+        meter = service._meter_provider = MagicMock()
+        listener = service._dbus_listener = MagicMock()
 
         service.stop()
+        service.stop()
 
-        service._dbus_listener.stop.assert_called_once()
-        service._tracer_provider.shutdown.assert_called_once()
-        service._meter_provider.shutdown.assert_called_once()
+        listener.stop.assert_called_once()
+        tracer.shutdown.assert_called_once()
+        meter.shutdown.assert_called_once()
 
     def test_lifespan_context_manager(self) -> None:
         """Test lifespan context manager."""
