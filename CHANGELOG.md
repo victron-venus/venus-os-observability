@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Close the Prometheus HTTP socket and serving thread during service shutdown,
+  direct meter-provider shutdown and failed startup. Continue cleaning up the
+  other owned components if one shutdown operation fails.
+
+### Upgrade
+
+- The public two-provider `setup_telemetry()` return value is unchanged.
+  `prometheus-client>=0.20` is now required for its HTTP lifecycle handles;
+  the locked version remains 0.26.0.
+
 ## [0.1.12] - 2026-10-20
 
 ### Changed
