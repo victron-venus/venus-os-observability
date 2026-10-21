@@ -14,10 +14,10 @@
 ### Security
 
 - Update locked `certifi` to 2026.10.19 for GHSA-6q48-6c7w-9gw2 (compromised
-  intermediate CA keys), and `virtualenv` to 21.14.7 for activation-script command
+  intermediate CA keys), and `virtualenv` to 21.14.9 for activation-script command
   injection fixes CVE-2026-113725, CVE-2026-113726, CVE-2026-113732 and
-  CVE-2026-113776. `packaging` moves to 26.3 to satisfy `virtualenv`'s new minimum;
-  no other dependency versions change.
+  CVE-2026-113776, plus CVE-2026-113722 / GHSA-c978-59m8-c77v. `packaging` moves to
+  26.3 to satisfy `virtualenv`'s new minimum; no other dependency versions change.
 
 ### Upgrade
 
