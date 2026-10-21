@@ -4,9 +4,20 @@
 
 ### Fixed
 
+- Coordinate D-Bus listener startup and shutdown, including a stop request before
+  the GLib loop exists. Join the owned worker with a bounded timeout and prevent
+  duplicate starts; blocking `run()` now waits for that same worker.
 - Close the Prometheus HTTP socket and serving thread during service shutdown,
   direct meter-provider shutdown and failed startup. Continue cleaning up the
   other owned components if one shutdown operation fails.
+
+### Security
+
+- Update locked `certifi` to 2026.10.19 for GHSA-6q48-6c7w-9gw2 (compromised
+  intermediate CA keys), and `virtualenv` to 21.14.7 for activation-script command
+  injection fixes CVE-2026-113725, CVE-2026-113726, CVE-2026-113732 and
+  CVE-2026-113776. `packaging` moves to 26.3 to satisfy `virtualenv`'s new minimum;
+  no other dependency versions change.
 
 ### Upgrade
 

@@ -441,6 +441,14 @@ Stopping the service closes the Prometheus listening socket, joins its serving
 thread and shuts down both telemetry providers. Failed startup also releases
 components that were already created; repeated `stop()` calls are safe.
 
+The D-Bus listener coordinates shutdown with its startup thread and waits up to
+five seconds for that thread to exit. A slow or stuck worker raises `TimeoutError`
+instead of reporting successful shutdown; its handle is retained for a later
+`stop()` attempt. Calling `stop()` from a D-Bus callback requests exit without
+joining the callback's own thread. A listener is single-use: create a new one
+after stopping it. `run()` blocks on the same worker started by `start()` and
+does not run a second GLib loop.
+
 The public `setup_telemetry()` helper still returns `(tracer_provider,
 meter_provider)`. Direct callers must shut down both providers; shutting down the
 meter provider also closes its HTTP server. This requires `prometheus-client`
