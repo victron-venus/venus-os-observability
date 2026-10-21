@@ -31,6 +31,8 @@ DBusGMainLoop(set_as_default=True)
 
 # Common D-Bus paths used across multiple service types
 DC_VOLTAGE_PATH = "/Dc/0/Voltage"
+STOP_TIMEOUT_SECONDS = 5.0
+STOP_POLL_SECONDS = 0.05
 
 
 class DBusSignalListener:
@@ -48,6 +50,8 @@ class DBusSignalListener:
         self.logger = logging.getLogger(__name__)
         self._main_loop: GLib.MainLoop | None = None
         self._loop_thread: threading.Thread | None = None
+        self._lifecycle_lock = threading.Lock()
+        self._stop_requested = False
         self._subscriptions: set[tuple[str, str]] = set()
         self._match_rules: list[str] = []
         self._filter_registered = False
@@ -220,38 +224,93 @@ class DBusSignalListener:
         span.set_attribute("dbus.processing_latency_ms", latency_ms)
 
     def start(self) -> None:
-        """Start the D-Bus event loop in a background thread."""
+        """Start one owned background thread; a stopped listener cannot restart."""
+        with self._lifecycle_lock:
+            self._start_locked()
+
+    def _start_locked(self) -> None:
+        if self._stop_requested:
+            raise RuntimeError("D-Bus listener has been stopped")
+        if self._loop_thread is not None:
+            raise RuntimeError("D-Bus listener is already started")
         self.logger.info("Starting D-Bus event loop")
-        self._loop_thread = threading.Thread(
-            target=self._run_loop, name="dbus-mainloop", daemon=True
-        )
-        self._loop_thread.start()
+        thread = threading.Thread(target=self._run_loop, name="dbus-mainloop", daemon=True)
+        self._loop_thread = thread
+        try:
+            thread.start()
+        except Exception:
+            self._loop_thread = None
+            raise
 
     def _run_loop(self) -> None:
         """Create and run the GLib main loop (must own its thread)."""
-        self._main_loop = GLib.MainLoop()
         try:
-            self._main_loop.run()
+            with self._lifecycle_lock:
+                if self._stop_requested:
+                    return
+            loop = GLib.MainLoop()
+            with self._lifecycle_lock:
+                self._main_loop = loop
+                if self._stop_requested:
+                    return
+            loop.run()
         except KeyboardInterrupt:
             self.logger.info("D-Bus event loop stopped")
+        finally:
+            with self._lifecycle_lock:
+                self._main_loop = None
 
     def run(self) -> None:
-        """Run the D-Bus event loop (blocking)."""
-        if not self._main_loop:
-            self.start()
-        assert self._main_loop is not None
+        """Start or await the owned worker, without running GLib on a second thread."""
+        with self._lifecycle_lock:
+            if self._loop_thread is None:
+                self._start_locked()
+            thread = self._loop_thread
+        assert thread is not None
+        if thread is threading.current_thread():
+            raise RuntimeError("D-Bus worker cannot wait for itself")
         try:
-            self._main_loop.run()
+            thread.join()
         except KeyboardInterrupt:
-            self.logger.info("D-Bus event loop stopped")
+            self.stop()
 
     def stop(self) -> None:
-        """Stop the D-Bus event loop."""
-        self.logger.info("Stopping D-Bus event loop")
-        self._owners.stop()
-        if self._main_loop and self._main_loop.is_running():
-            self._main_loop.quit()
+        """Request termination and wait at most five seconds outside the worker.
 
+        Calls from a GLib callback only request exit: that thread cannot join
+        itself. A timeout retains the thread handle so a later stop can join it.
+        """
+        self.logger.info("Stopping D-Bus event loop")
+        with self._lifecycle_lock:
+            cleanup_required = not self._stop_requested
+            self._stop_requested = True
+            thread = self._loop_thread
+        try:
+            self._stop_loop(thread)
+        finally:
+            if cleanup_required:
+                self._remove_subscriptions()
+
+    def _stop_loop(self, thread: threading.Thread | None) -> None:
+        deadline = time.monotonic() + STOP_TIMEOUT_SECONDS
+        while True:
+            with self._lifecycle_lock:
+                loop = self._main_loop
+            if loop is not None and loop.is_running():
+                loop.quit()
+            if thread is None or thread is threading.current_thread():
+                return
+            # GLib ignores quit before run starts. Repeat the request while
+            # joining to cover that transition without holding a lifecycle lock
+            # across GLib calls or waiting indefinitely for its constructor.
+            thread.join(max(0, min(STOP_POLL_SECONDS, deadline - time.monotonic())))
+            if not thread.is_alive():
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError("D-Bus event loop did not stop within five seconds")
+
+    def _remove_subscriptions(self) -> None:
+        self._owners.stop()
         # Remove match rules
         for rule in self._match_rules:
             with suppress(dbus.DBusException):

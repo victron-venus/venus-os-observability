@@ -6,6 +6,7 @@ Tests for D-Bus listener and service discovery.
 # pylint: disable=redefined-outer-name,unused-variable,unused-argument
 
 import sys
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -184,14 +185,25 @@ class TestDBusSignalListener:
         with patch("venus_observability.dbus_listener.GLib") as mock_glib:
             mock_main_loop = MagicMock()
             mock_glib.MainLoop.return_value = mock_main_loop
+            entered, finished = threading.Event(), threading.Event()
+
+            def run() -> None:
+                entered.set()
+                assert finished.wait(2)
+
+            mock_main_loop.run.side_effect = run
+            mock_main_loop.quit.side_effect = finished.set
 
             listener = DBusSignalListener(
                 metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer
             )
             listener.start()
-
-            assert listener._main_loop is mock_main_loop
-            mock_glib.MainLoop.assert_called_once()
+            try:
+                assert entered.wait(1)
+                assert listener._main_loop is mock_main_loop
+                mock_glib.MainLoop.assert_called_once()
+            finally:
+                listener.stop()
 
     def test_stop_quits_main_loop(
         self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
