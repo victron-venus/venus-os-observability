@@ -16,6 +16,7 @@ from .metrics import dbus_unresolved_signals_dropped
 VENUS_PREFIX = "com.victronenergy."
 BUS_DAEMON = "org.freedesktop.DBus"
 BUS_PATH = "/org/freedesktop/DBus"
+BUS_ITEM_INTERFACE = "com.victronenergy.BusItem"
 MAX_PENDING_BATCHES = 256
 MAX_PENDING_ITEMS = 4096
 PENDING_TTL = 10.0
@@ -28,16 +29,18 @@ class ServiceOwnerTracker:
     def __init__(
         self,
         bus: Any,
-        deliver: Callable[[str, dict[str, Any], str | None], None],
+        deliver: Callable[[str, dict[str, Any], str | None, str], None],
         invalidate: Callable[[str], None],
+        select_service: Callable[[set[str], str], str | None] | None = None,
     ) -> None:
         self.bus = bus
         self.deliver = deliver
         self.invalidate = invalidate
+        self.select_service = select_service
         self.logger = logging.getLogger(__name__)
         self.services: dict[str, str] = {}
         self.owners: dict[str, set[str]] = {}
-        self.pending: deque[tuple[float, str, dict[str, Any], str | None]] = deque()
+        self.pending: deque[tuple[float, str, dict[str, Any], str | None, str]] = deque()
         self.pending_items = 0
         self._match: Any = None
         self._timer: Any = None
@@ -63,15 +66,22 @@ class ServiceOwnerTracker:
         self._timer = GLib.timeout_add_seconds(1, self._tick)
         self._refresh()
 
-    def submit(self, owner: str, changed: dict[str, Any], correlation_id: str | None) -> None:
+    def submit(
+        self,
+        owner: str,
+        changed: dict[str, Any],
+        correlation_id: str | None,
+        interface: str = BUS_ITEM_INTERFACE,
+    ) -> None:
         """Deliver known signals immediately; never use unique names as metric labels."""
         if self._closed or not changed:
             return
         if owner.startswith(VENUS_PREFIX):
-            self.deliver(owner, changed, correlation_id)
+            if service := self._select_service({owner}, interface):
+                self.deliver(service, changed, correlation_id, interface)
             return
-        if names := self.owners.get(owner):
-            self.deliver(min(names), changed, correlation_id)
+        if service := self._select_service(self.owners.get(owner, set()), interface):
+            self.deliver(service, changed, correlation_id, interface)
             return
         if not owner.startswith(":"):
             return
@@ -86,7 +96,7 @@ class ServiceOwnerTracker:
         ):
             self.pending_items -= len(self.pending.popleft()[2])
             self._drop("overflow")
-        self.pending.append((time.monotonic(), owner, changed, correlation_id))
+        self.pending.append((time.monotonic(), owner, changed, correlation_id, interface))
         self.pending_items += len(changed)
         self._refresh()
 
@@ -112,13 +122,28 @@ class ServiceOwnerTracker:
             self.owners.setdefault(owner, set()).add(name)
             self._replay(owner)
 
+    def _select_service(self, names: set[str], interface: str) -> str | None:
+        if not names:
+            return None
+        if self.select_service is not None:
+            return self.select_service(names, interface)
+        return min(names)
+
     def _replay(self, owner: str) -> None:
         self._expire()
-        replay = [item for item in self.pending if item[1] == owner]
-        self.pending = deque(item for item in self.pending if item[1] != owner)
-        self.pending_items -= sum(len(item[2]) for item in replay)
-        for _, _, changed, correlation_id in replay:
-            self.deliver(min(self.owners[owner]), changed, correlation_id)
+        # A non-selected alias may resolve first. Retain its batches until an
+        # eligible name resolves (or the ordinary queue limit/expiry applies).
+        replay = []
+        retained: deque[tuple[float, str, dict[str, Any], str | None, str]] = deque()
+        for item in self.pending:
+            if item[1] == owner and (service := self._select_service(self.owners[owner], item[4])):
+                replay.append((service, item))
+            else:
+                retained.append(item)
+        self.pending = retained
+        self.pending_items -= sum(len(item[2]) for _, item in replay)
+        for service, (_, _, changed, correlation_id, interface) in replay:
+            self.deliver(service, changed, correlation_id, interface)
 
     def _call(self, method: str, args: tuple[str, ...], reply: Callable[..., None]) -> None:
         """Use the connection API directly: no blocking proxy introspection/owner lookup."""

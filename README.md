@@ -167,6 +167,19 @@ not enforce the required minimum certificate key strengths. See
 [OTLP transport and migration](docs/otlp-transport.md) before changing an
 existing deployment. No protocol, port or TLS configuration is changed silently.
 
+The CLI uses `subscribe_global()` to receive root (`/`) `ItemsChanged` batches
+from all Venus BusItem services. Library callers can use
+`subscribe(service, "/Soc")` or `subscribe_service(service, paths)` to select
+exact measurement paths from those same root batches; the D-Bus object path
+is not the measurement path. `create_listener()` applies this selection to the
+known or discovered paths. One bus rule per service/interface and one message
+filter avoid duplicate updates from repeated or overlapping subscriptions.
+A custom interface remains scoped to its selected service and paths, even when
+global BusItem reception is also enabled. Selection survives delayed owner
+resolution; if a connection owns several names, scoped subscriptions choose
+the first eligible name in lexical order, while global reception retains its
+existing lexical choice. Stop removes the rules, filter and queued batches.
+
 Metric labels use stable Venus service names. The exporter subscribes to
 `NameOwnerChanged` before asynchronous startup discovery, removes superseded
 owners and invalidates that service's previously published gauges on loss or
