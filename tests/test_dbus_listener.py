@@ -63,12 +63,16 @@ class TestDBusSignalListener:
         call_args = mock_dbus_bus.add_match_string.call_args[0][0]
         assert "type='signal'" in call_args
         assert "sender='com.victronenergy.battery.ttyO1'" in call_args
-        assert "path='/Soc'" in call_args
+        assert "path='/'" in call_args
         assert "interface='com.victronenergy.BusItem'" in call_args
         assert "member='ItemsChanged'" in call_args
 
         # Verify subscription tracked
-        assert ("com.victronenergy.battery.ttyO1", "/Soc") in listener._subscriptions
+        assert (
+            "com.victronenergy.battery.ttyO1",
+            "com.victronenergy.BusItem",
+            "/Soc",
+        ) in listener._subscriptions
         assert len(listener._match_rules) == 1
 
     def test_subscribe_duplicate_ignored(
@@ -90,9 +94,13 @@ class TestDBusSignalListener:
         paths = ["/Soc", "/Dc/0/Voltage", "/Dc/0/Current"]
         listener.subscribe_service("com.victronenergy.battery.ttyO1", paths)
 
-        assert mock_dbus_bus.add_match_string.call_count == 3
+        assert mock_dbus_bus.add_match_string.call_count == 1
         for path in paths:
-            assert ("com.victronenergy.battery.ttyO1", path) in listener._subscriptions
+            assert (
+                "com.victronenergy.battery.ttyO1",
+                "com.victronenergy.BusItem",
+                path,
+            ) in listener._subscriptions
 
     def test_subscribe_handles_dbus_exception(
         self, mock_metrics: MagicMock, mock_tracer: MagicMock, mock_dbus_bus: MagicMock
@@ -107,6 +115,10 @@ class TestDBusSignalListener:
         listener.subscribe("com.victronenergy.battery.ttyO1", "/Soc")
         # Verify exception was handled (no crash)
         mock_dbus_bus.add_match_string.assert_called_once()
+        assert not listener._subscriptions and not listener._match_rules
+        mock_dbus_bus.add_match_string.side_effect = None
+        listener.subscribe("com.victronenergy.battery.ttyO1", "/Soc")
+        assert len(listener._subscriptions) == len(listener._match_rules) == 1
 
     @patch("venus_observability.dbus_listener.trace")
     def test_message_filter_items_changed(
@@ -119,9 +131,13 @@ class TestDBusSignalListener:
         """Test message filter processes ItemsChanged signals."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
 
+        listener.subscribe_global()
         # Create mock message
         # Real Venus OS payload: signal at path "/", dict of absolute paths -> {Value, Text}
         mock_message = MagicMock()
+        mock_message.get_type.return_value = 4
+        mock_message.get_path.return_value = "/"
+        mock_message.get_interface.return_value = "com.victronenergy.BusItem"
         mock_message.get_member.return_value = "ItemsChanged"
         mock_message.get_sender.return_value = "com.victronenergy.battery.ttyO1"
         mock_message.get_path.return_value = "/"
@@ -170,7 +186,11 @@ class TestDBusSignalListener:
         """Test message filter ignores messages with no args."""
         listener = DBusSignalListener(metrics=mock_metrics, bus=mock_dbus_bus, tracer=mock_tracer)
 
+        listener.subscribe_global()
         mock_message = MagicMock()
+        mock_message.get_type.return_value = 4
+        mock_message.get_path.return_value = "/"
+        mock_message.get_interface.return_value = "com.victronenergy.BusItem"
         mock_message.get_member.return_value = "ItemsChanged"
         mock_message.get_args_list.return_value = []
 

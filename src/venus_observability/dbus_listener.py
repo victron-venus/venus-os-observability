@@ -23,7 +23,7 @@ from .correlation import (
     extract_correlation_id_from_headers,
     get_correlation_id,
 )
-from .dbus_owners import ServiceOwnerTracker
+from .dbus_owners import BUS_ITEM_INTERFACE, ServiceOwnerTracker
 from .metrics import VictronMetrics, invalidate_prometheus_service, update_prometheus_from_dbus
 
 # Initialize D-Bus main loop
@@ -52,10 +52,13 @@ class DBusSignalListener:
         self._loop_thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
         self._stop_requested = False
-        self._subscriptions: set[tuple[str, str]] = set()
+        self._subscriptions: set[tuple[str, str, str]] = set()
+        self._global_subscription = False
         self._match_rules: list[str] = []
         self._filter_registered = False
-        self._owners = ServiceOwnerTracker(self.bus, self._process_values, self._invalidate_service)
+        self._owners = ServiceOwnerTracker(
+            self.bus, self._process_values, self._invalidate_service, self._select_service
+        )
 
     def _invalidate_service(self, service: str) -> None:
         self.metrics.invalidate_service(service)
@@ -74,6 +77,8 @@ class DBusSignalListener:
         with a dict of absolute item paths, so one global match rule covers
         every service (per-path rules never match).
         """
+        if self._global_subscription:
+            return
         try:
             match_rule = (
                 "type='signal',interface='com.victronenergy.BusItem',member='ItemsChanged',path='/'"
@@ -81,6 +86,7 @@ class DBusSignalListener:
             self.bus.add_match_string(match_rule)
             self._install_filter()
             self._match_rules.append(match_rule)
+            self._global_subscription = True
             self.logger.info("Subscribed to Victron ItemsChanged signals")
         except dbus.DBusException as e:
             self.logger.warning("Failed to subscribe to Victron signals: %s", e)
@@ -89,10 +95,10 @@ class DBusSignalListener:
         self,
         service: str,
         path: str,
-        interface: str = "com.victronenergy.BusItem",
+        interface: str = BUS_ITEM_INTERFACE,
     ) -> None:
-        """Subscribe to D-Bus signals for a service/path."""
-        key = (service, path)
+        """Receive root batches, selecting this service/interface's exact item path."""
+        key = (service, interface, path)
         if key in self._subscriptions:
             return
 
@@ -100,14 +106,15 @@ class DBusSignalListener:
             match_rule = (
                 f"type='signal',"
                 f"sender='{service}',"
-                f"path='{path}',"
+                "path='/',"
                 f"interface='{interface}',"
                 f"member='ItemsChanged'"
             )
-            self.bus.add_match_string(match_rule)
-            self._install_filter()
+            if match_rule not in self._match_rules:
+                self.bus.add_match_string(match_rule)
+                self._install_filter()
+                self._match_rules.append(match_rule)
             self._subscriptions.add(key)
-            self._match_rules.append(match_rule)
             self.logger.debug("Subscribed to %s%s", service, path)
         except dbus.DBusException as e:
             self.logger.warning("Failed to subscribe to %s%s: %s", service, path, e)
@@ -130,10 +137,20 @@ class DBusSignalListener:
 
     def _message_filter(self, bus: dbus.Bus, message: dbus.Message) -> None:
         """Handle incoming D-Bus signal messages."""
-        if message.get_member() != "ItemsChanged":
+        if (
+            message.get_type() != 4  # D-Bus SIGNAL, not a method on a shared connection
+            or message.get_member() != "ItemsChanged"
+            or message.get_path() != "/"
+        ):
             return
 
         try:
+            interface = str(message.get_interface() or "")
+            if not (
+                (self._global_subscription and interface == BUS_ITEM_INTERFACE)
+                or any(selected == interface for _, selected, _ in self._subscriptions)
+            ):
+                return
             raw_sender = str(message.get_sender() or "")
             args = message.get_args_list()
 
@@ -147,15 +164,34 @@ class DBusSignalListener:
             headers = self._extract_headers_from_message(message)
             correlation_id = extract_correlation_id_from_headers(headers)
 
-            self._owners.submit(raw_sender, dict(changed), correlation_id)
+            self._owners.submit(raw_sender, dict(changed), correlation_id, interface)
 
         except Exception as e:
             self.logger.error("Error processing D-Bus signal: %s", e)
 
+    def _select_service(self, names: set[str], interface: str) -> str | None:
+        """Keep the stable global identity, or choose an explicitly subscribed alias."""
+        if self._global_subscription and interface == BUS_ITEM_INTERFACE:
+            return min(names) if names else None
+        selected = {
+            service
+            for service, selected_interface, _ in self._subscriptions
+            if service in names and selected_interface == interface
+        }
+        return min(selected) if selected else None
+
     def _process_values(
-        self, service: str, changed: dict[str, Any], correlation_id: str | None
+        self, service: str, changed: dict[str, Any], correlation_id: str | None, interface: str
     ) -> None:
-        """Process immediate or replayed values under one stable service identity."""
+        """Select immediate or replayed values under one stable service identity."""
+        if not (self._global_subscription and interface == BUS_ITEM_INTERFACE):
+            changed = {
+                str(path): value
+                for path, value in changed.items()
+                if (service, interface, str(path)) in self._subscriptions
+            }
+        if not changed:
+            return
         try:
             with self._trace_signal(service, "/", changed, correlation_id) as span:
                 for key, value in changed.items():
@@ -317,6 +353,7 @@ class DBusSignalListener:
                 self.bus.remove_match_string(rule)
         self._match_rules.clear()
         self._subscriptions.clear()
+        self._global_subscription = False
         if self._filter_registered:
             self.bus.remove_message_filter(self._message_filter)
             self._filter_registered = False

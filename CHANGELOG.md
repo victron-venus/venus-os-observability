@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Receive per-service `ItemsChanged` batches at the root D-Bus object and select
+  the requested measurement paths after owner resolution. Preserve interface
+  boundaries, choose an eligible subscribed service alias and deduplicate
+  repeated subscriptions, including overlap with global reception. The
+  `create_listener()` factory now receives normal root batches.
+
 - Coordinate D-Bus listener startup and shutdown, including a stop request before
   the GLib loop exists. Join the owned worker with a bounded timeout and prevent
   duplicate starts; blocking `run()` now waits for that same worker.

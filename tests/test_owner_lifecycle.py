@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 from prometheus_client import CollectorRegistry, Counter, Gauge
 
-from venus_observability import dbus_owners, metrics
+from venus_observability import dbus_listener, dbus_owners, metrics
 from venus_observability.dbus_listener import DBusSignalListener
-from venus_observability.dbus_owners import ServiceOwnerTracker
+from venus_observability.dbus_owners import BUS_ITEM_INTERFACE, ServiceOwnerTracker
 
 SERVICE = "com.victronenergy.battery.owner_test"
 
@@ -37,6 +37,7 @@ class FakeBus:
         self.match = MagicMock()
         self.filters: list[Any] = []
         self.rules: list[str] = []
+        self.published_owners: dict[str, str] = {}
 
     def add_signal_receiver(self, receiver: Any, **kwargs: Any) -> MagicMock:
         """Retain the subscription so tests can dispatch daemon lifecycle events."""
@@ -84,15 +85,50 @@ class FakeBus:
     def owner(self, name: str, previous: str, current: str) -> None:
         """Dispatch a daemon ownership notification through its actual callback."""
         assert self.receiver is not None
+        if current:
+            self.published_owners[name] = current
+        else:
+            self.published_owners.pop(name, None)
         self.receiver(name, previous, current)
 
-    def items(self, owner: str, changed: dict[str, Any]) -> None:
-        """Dispatch a complete ItemsChanged batch through installed filters."""
+    def items(
+        self,
+        owner: str,
+        changed: dict[str, Any],
+        *,
+        interface: str = "com.victronenergy.BusItem",
+        path: str = "/",
+        member: str = "ItemsChanged",
+        message_type: int = 4,
+        shared_connection: bool = False,
+    ) -> None:
+        """Apply D-Bus match fields before dispatch; overlapping rules deliver once."""
+        headers = {
+            "type": "signal" if message_type == 4 else "method_call",
+            "sender": owner,
+            "path": path,
+            "interface": interface,
+            "member": member,
+        }
+        matched = False
+        for rule in self.rules:
+            fields = dict(part.split("=", 1) for part in rule.split(","))
+            expected = {key: value.strip("'") for key, value in fields.items()}
+            if "sender" in expected:
+                expected["sender"] = self.published_owners.get(
+                    expected["sender"], expected["sender"]
+                )
+            matched |= all(headers[key] == value for key, value in expected.items())
+        if not matched and not shared_connection:
+            return
         message = MagicMock()
-        message.get_member.return_value = "ItemsChanged"
+        message.get_type.return_value = message_type
+        message.get_member.return_value = member
         message.get_sender.return_value = owner
+        message.get_interface.return_value = interface
+        message.get_path.return_value = path
         message.get_args_list.return_value = [changed]
-        for callback in self.filters:
+        for callback in list(self.filters):
             callback(self, message)
 
 
@@ -136,7 +172,7 @@ def test_startup_batches_replay_in_order_without_losing_text_or_invalid_values(
     bus.take("ListNames").success([SERVICE])
     bus.take("GetNameOwner", (SERVICE,)).success(":1.200")
     assert [call.args for call in delivered.call_args_list] == [
-        (SERVICE, update, "correlation") for update in updates
+        (SERVICE, update, "correlation", BUS_ITEM_INTERFACE) for update in updates
     ]
     assert not tracker.pending and tracker.pending_items == 0
     tracker.submit(":1.200", {"/Soc": {"Value": 51}}, None)
@@ -151,7 +187,7 @@ def test_owner_change_during_list_names_takes_precedence(scenario: Any) -> None:
     bus.take("ListNames").success([SERVICE])
     assert not bus.calls
     tracker.submit(":1.201", {"/Soc": {"Value": 52}}, None)
-    delivered.assert_called_once_with(SERVICE, {"/Soc": {"Value": 52}}, None)
+    delivered.assert_called_once_with(SERVICE, {"/Soc": {"Value": 52}}, None, BUS_ITEM_INTERFACE)
 
 
 def test_late_snapshot_owner_cannot_restore_replaced_owner(scenario: Any) -> None:
@@ -256,7 +292,7 @@ def test_pending_item_limit_does_not_block_known_signals(
     tracker.submit(":1.902", {str(i): i for i in range(4)}, None)
     assert len(tracker.pending) == 1 and tracker.pending_items == 2
     tracker.submit(SERVICE, {"/Soc": 60}, None)
-    delivered.assert_called_once_with(SERVICE, {"/Soc": 60}, None)
+    delivered.assert_called_once_with(SERVICE, {"/Soc": 60}, None, BUS_ITEM_INTERFACE)
 
 
 @pytest.mark.parametrize("failed_method", ["ListNames", "GetNameOwner"])
@@ -279,7 +315,7 @@ def test_failed_snapshot_retries_without_owner_event_before_queue_expiry(
     tracker._tick()
     bus.take("ListNames").success([SERVICE])
     bus.take("GetNameOwner", (SERVICE,)).success(":1.500")
-    delivered.assert_called_once_with(SERVICE, {"/Soc": 65}, None)
+    delivered.assert_called_once_with(SERVICE, {"/Soc": 65}, None, BUS_ITEM_INTERFACE)
 
 
 def test_snapshot_replaces_missing_cache_entries_without_lifecycle_event(scenario: Any) -> None:
@@ -321,3 +357,153 @@ def test_multiple_path_subscriptions_install_only_one_message_filter() -> None:
     bus.items(SERVICE, {"/Soc": 45})
     received.update_from_dbus.assert_called_once()
     listener.stop()
+
+
+def test_per_service_root_batch_selects_only_requested_paths_and_service() -> None:
+    bus = FakeBus()
+    received = MagicMock()
+    listener = DBusSignalListener(received, bus=bus, tracer=MagicMock())
+    listener.subscribe_service(SERVICE, ["/Soc", "/Dc/0/Power"])
+    listener.subscribe(SERVICE, "/Soc")
+    try:
+        assert len(bus.rules) == len(bus.filters) == 1
+        bus.items(SERVICE, {"/Soc": {"Value": 47}, "/State": 8, "/Dc/0/Power": 123})
+        assert [call.args for call in received.update_from_dbus.call_args_list] == [
+            (SERVICE, "/Soc", 47),
+            (SERVICE, "/Dc/0/Power", 123),
+        ]
+        received.reset_mock()
+        bus.items(SERVICE + "_other", {"/Soc": 48}, shared_connection=True)
+        bus.items(SERVICE, {"/Soc": 49}, interface="com.example.Other", shared_connection=True)
+        bus.items(SERVICE, {"/Soc": 50}, path="/Soc", shared_connection=True)
+        bus.items(SERVICE, {"/Soc": 51}, message_type=1, shared_connection=True)
+        received.update_from_dbus.assert_not_called()
+    finally:
+        listener.stop()
+    assert not bus.rules and not bus.filters
+    bus.match.remove.assert_called_once()
+
+
+def test_interface_selection_survives_pending_owner_replay() -> None:
+    bus = FakeBus()
+    received = MagicMock()
+    listener = DBusSignalListener(received, bus=bus, tracer=MagicMock())
+    other = SERVICE + "_other"
+    custom = "com.example.Other"
+    listener.subscribe(SERVICE, "/Soc")
+    listener.subscribe(SERVICE, "/State", interface=custom)
+    listener.subscribe(other, "/Soc", interface=custom)
+    bus.published_owners[SERVICE] = ":1.900"
+    try:
+        bus.items(":1.900", {"/Soc": 47, "/State": 8})
+        bus.items(":1.900", {"/Soc": 48, "/State": 9}, interface=custom)
+        received.update_from_dbus.assert_not_called()
+        assert listener._owners.pending_items == 4
+        bus.take("ListNames").success([SERVICE])
+        bus.take("GetNameOwner", (SERVICE,)).success(":1.900")
+        assert [call.args for call in received.update_from_dbus.call_args_list] == [
+            (SERVICE, "/Soc", 47),
+            (SERVICE, "/State", 9),
+        ]
+        assert not listener._owners.pending
+    finally:
+        listener.stop()
+
+
+@pytest.mark.parametrize("global_first", [True, False])
+def test_global_and_service_overlap_is_idempotent_and_keeps_custom_interface_scope(
+    global_first: bool,
+) -> None:
+    bus = FakeBus()
+    received = MagicMock()
+    listener = DBusSignalListener(received, bus=bus, tracer=MagicMock())
+    if global_first:
+        listener.subscribe_global()
+    listener.subscribe(SERVICE, "/Soc")
+    listener.subscribe(SERVICE, "/Soc", interface="com.example.Other")
+    listener.subscribe_global()
+    listener.subscribe_global()
+    try:
+        assert len(bus.filters) == 1
+        assert len(bus.rules) == len(set(bus.rules)) == 3
+        bus.items(SERVICE, {"/Soc": 47, "/State": 8})
+        bus.items(SERVICE, {"/Soc": 48, "/State": 9}, interface="com.example.Other")
+        assert [call.args for call in received.update_from_dbus.call_args_list] == [
+            (SERVICE, "/Soc", 47),
+            (SERVICE, "/State", 8),
+            (SERVICE, "/Soc", 48),
+        ]
+    finally:
+        listener.stop()
+    assert not bus.rules and not bus.filters
+    listener.stop()
+    bus.match.remove.assert_called_once()
+
+
+async def test_factory_listener_receives_root_batches_for_known_and_discovered_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bus = FakeBus()
+    received = MagicMock()
+    unknown = "com.victronenergy.custom.factory"
+    discovery = MagicMock()
+    discovery.find_victron_services.return_value = {SERVICE: ["/Soc"], unknown: ["/CustomValue"]}
+    discovery.get_known_paths.side_effect = lambda service: ["/Soc"] if service == SERVICE else []
+    monkeypatch.setattr("venus_observability.dbus_listener.dbus.SystemBus", lambda: bus)
+    monkeypatch.setattr(dbus_listener, "VictronServiceDiscovery", lambda _: discovery)
+    listener = await dbus_listener.create_listener(received)
+    try:
+        bus.items(SERVICE, {"/Soc": 47, "/State": 8})
+        bus.items(unknown, {"/CustomValue": 12, "/OtherValue": 13})
+        assert [call.args for call in received.update_from_dbus.call_args_list] == [
+            (SERVICE, "/Soc", 47),
+            (unknown, "/CustomValue", 12),
+        ]
+        assert len(bus.filters) == 1 and len(bus.rules) == 2
+    finally:
+        listener.stop()
+    assert not bus.rules and not bus.filters
+
+
+def test_stop_discards_unresolved_scoped_batch_and_ignores_late_owner_reply() -> None:
+    bus = FakeBus()
+    received = MagicMock()
+    listener = DBusSignalListener(received, bus=bus, tracer=MagicMock())
+    listener.subscribe(SERVICE, "/Soc")
+    bus.published_owners[SERVICE] = ":1.901"
+    bus.items(":1.901", {"/Soc": 47})
+    assert listener._owners.pending_items == 1
+    late = bus.take("ListNames")
+    listener.stop()
+    late.success([SERVICE])
+    received.update_from_dbus.assert_not_called()
+    assert not listener._owners.pending and listener._owners.pending_items == 0
+    assert not bus.rules and not bus.filters
+    late.handle.cancel.assert_called_once()
+
+
+@pytest.mark.parametrize("with_global", [False, True])
+def test_selected_alias_is_not_lost_when_unselected_name_resolves_first(with_global: bool) -> None:
+    bus = FakeBus()
+    received = MagicMock()
+    listener = DBusSignalListener(received, bus=bus, tracer=MagicMock())
+    unselected = "com.victronenergy.battery.aaa_unselected"
+    interface = "com.example.Other" if with_global else BUS_ITEM_INTERFACE
+    if with_global:
+        listener.subscribe_global()
+    listener.subscribe(SERVICE, "/Soc", interface=interface)
+    bus.published_owners[SERVICE] = bus.published_owners[unselected] = ":1.902"
+    try:
+        bus.items(":1.902", {"/Soc": 47, "/State": 8}, interface=interface)
+        bus.take("ListNames").success([unselected, SERVICE])
+        bus.take("GetNameOwner", (unselected,)).success(":1.902")
+        received.update_from_dbus.assert_not_called()
+        assert listener._owners.pending_items == 2
+        bus.take("GetNameOwner", (SERVICE,)).success(":1.902")
+        received.update_from_dbus.assert_called_once_with(SERVICE, "/Soc", 47)
+        assert listener._owners.pending_items == 0
+        received.reset_mock()
+        bus.items(":1.902", {"/Soc": 48}, interface=interface)
+        received.update_from_dbus.assert_called_once_with(SERVICE, "/Soc", 48)
+    finally:
+        listener.stop()

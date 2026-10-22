@@ -13,7 +13,11 @@ def test_invalid_array_does_not_discard_later_phase(caplog: pytest.LogCaptureFix
     """Mirror the empty-array invalidation observed when the grid meter vanished."""
     metrics = VictronMetrics(MagicMock())
     listener = DBusSignalListener(metrics, bus=MagicMock(), tracer=MagicMock())
+    listener.subscribe_global()
     message = MagicMock()
+    message.get_type.return_value = 4
+    message.get_path.return_value = "/"
+    message.get_interface.return_value = "com.victronenergy.BusItem"
     message.get_member.return_value = "ItemsChanged"
     message.get_sender.return_value = "com.victronenergy.system.batch_test"
     grid_power.labels(serial="batch_test", phase="l1").set(125)
