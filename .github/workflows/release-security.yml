@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -28,7 +28,7 @@ jobs:
       - name: Block high severity Python findings
         run: python -m bandit -r . -lll -x ./.git/,./.venv/,./.venv-ci/,./tests/,./release-dist/,./dist/,./build/ -f json -o bandit-results.json
       - name: Block high and critical dependency and secret findings
-        uses: aquasecurity/trivy-action@6abccf398f78b4c337599c0656f933d91efb91a0
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87
         env:
           TRIVY_FILE_PATTERNS: 'pip:requirements-tls\.txt'
         with:
