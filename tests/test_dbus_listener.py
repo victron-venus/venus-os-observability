@@ -431,7 +431,7 @@ def test_dbus_string_keys_are_normalized_for_real_otel(caplog: pytest.LogCapture
         assert span.attributes is not None
         assert span.attributes["dbus.changed_keys"] == ("/Soc",)
     assert "Invalid type" not in caplog.text
-    provider.shutdown()  # type: ignore[no-untyped-call]
+    provider.shutdown()
 
 
 def test_nonrecording_span_does_not_serialize_dbus_values() -> None:
