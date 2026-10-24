@@ -5,12 +5,13 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from http.client import HTTPConnection
 from threading import Thread
-from typing import Any, cast
+from typing import Any
 from unittest.mock import MagicMock
 from wsgiref.simple_server import WSGIServer
 
 import pytest
 from opentelemetry import trace
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from prometheus_client import CollectorRegistry, start_http_server
 
@@ -46,7 +47,12 @@ class HTTPHarness:
 def http_harness(monkeypatch: pytest.MonkeyPatch) -> Iterator[HTTPHarness]:
     harness = HTTPHarness()
     monkeypatch.setattr(main, "start_http_server", harness.start)
-    monkeypatch.setattr("opentelemetry.exporter.prometheus.REGISTRY", harness.registry)
+    original_init = PrometheusMetricReader.__init__
+
+    def isolated_init(reader: Any) -> None:
+        original_init(reader, registry=harness.registry)
+
+    monkeypatch.setattr(PrometheusMetricReader, "__init__", isolated_init)
     monkeypatch.setattr(trace, "set_tracer_provider", lambda _: None)
     monkeypatch.setattr(main, "set_global_textmap", lambda _: None)
     monkeypatch.setattr(main, "DBusSignalListener", lambda **_: harness.dbus)
@@ -201,8 +207,7 @@ def test_stop_error_does_not_skip_http_cleanup(
     service = main.ObservabilityService(prometheus_port=0)
     service.start()
     assert service._tracer_provider is not None
-    # The pinned SDK leaves this zero-argument shutdown method untyped.
-    original_shutdown = cast(Callable[[], None], service._tracer_provider.shutdown)
+    original_shutdown = service._tracer_provider.shutdown
 
     def shutdown_tracer() -> None:
         original_shutdown()

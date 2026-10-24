@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from opentelemetry.sdk.trace.export import SpanExportResult
 
 from venus_observability.otlp import _HTTPSOnlySession, create_exporter
 
@@ -122,13 +123,30 @@ def test_standard_http_configuration_and_trace_specific_precedence(
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY", "client.key")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE", "client.pem")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "7")
-    exporter: Any = create_exporter("https://localhost/base")
+    observed: list[tuple[requests.PreparedRequest, dict[str, Any]]] = []
+
+    def send(
+        session: requests.Session, request: requests.PreparedRequest, **kwargs: Any
+    ) -> requests.Response:
+        observed.append((request, kwargs))
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b""
+        response.request = request
+        return response
+
+    monkeypatch.setattr(requests.Session, "send", send)
+    exporter = create_exporter("https://localhost/base")
     try:
-        assert exporter._endpoint == "https://localhost/explicit"
-        assert exporter._headers == {"fixture": "trace-specific"}
-        assert exporter._certificate_file == "trace-ca.pem"
-        assert exporter._client_cert == ("client.pem", "client.key")
-        assert exporter._timeout == 7
+        assert exporter.export([]) == SpanExportResult.SUCCESS
+        assert len(observed) == 1
+        request, options = observed[0]
+        assert request.url == "https://localhost/explicit"
+        assert request.headers["fixture"] == "trace-specific"
+        assert "common" not in request.headers
+        assert options["verify"] == "trace-ca.pem"
+        assert options["cert"] == ("client.pem", "client.key")
+        assert 0 < options["timeout"] <= 7
     finally:
         exporter.shutdown()
 

@@ -49,11 +49,15 @@ D-Bus observations feed metrics and optional spans. Prometheus reads the metrics
 - **Grafana Tempo Integration**: Visualize trace timelines in Grafana
 - **Native Venus OS Service**: Supports native supervision; offline pip installation requires wheels matching the target Python version and architecture
 
-Explicitly unavailable numeric D-Bus values, including Venus empty arrays, are
-exported as `NaN` in both metric backends. They replace the previous reading and
-do not discard other items in the same signal. A later valid zero is retained as
-zero. Text-only updates do not replace numeric measurements. This handles value
-invalidation; it does not independently detect every silent source outage.
+Explicitly unavailable numeric D-Bus values, including Venus empty arrays, remove
+the previous sample from OpenTelemetry's observable gauges. This also applies
+to the Prometheus reader attached to OpenTelemetry. The separate direct
+Prometheus gauges retain their `NaN` convention. Neither path publishes a stale
+reading or invents a zero; a later measured zero is retained as zero. Other items
+in the same signal are still processed. Text-only updates do not replace numeric
+measurements. This handles value invalidation; it does not independently detect
+every silent source outage. Alert rules for OpenTelemetry series should account
+for absent samples as unavailable data.
 
 ## Deployment evidence
 
