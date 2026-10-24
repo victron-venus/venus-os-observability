@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.13] - 2026-10-24
+
+### Security
+
+- Upgrade the compatible OpenTelemetry API, SDK and OTLP exporters to 1.45.1,
+  with instrumentation and Prometheus exporter 0.66b1. This fixes excessive CPU
+  use while parsing untrusted W3C `tracestate` (GHSA-xcq7-p3pf-p88h).
+- Keep the runtime, CI and fuzzing dependency exports aligned with the patched
+  API. Non-OpenTelemetry runtime dependency versions are unchanged.
+
+### Fixed
+
+- Use the actual OpenTelemetry getter/setter interfaces and W3C propagator
+  import path. Preserve explicit trace context during injection and extraction;
+  verify propagation against real SDK carriers instead of bypassing the wrapper.
+  Extraction returns isolated context without leaking correlation IDs into the
+  caller; injection honors explicit context rather than an unrelated ambient span.
+- Preserve unavailable measurements with the newer SDK: OpenTelemetry observable
+  gauges omit lost or invalid samples, including through its Prometheus reader.
+  The separate direct Prometheus gauges retain `NaN`. Other owners and phases
+  stay intact, and a later measured zero is exported normally.
+- Exercise OTLP requests through the public exporter API, including decoded wire
+  payloads, verified TLS chains, mutual TLS, proxy boundaries and HTTP shutdown.
+
+### Upgrade
+
+Use the existing package or container update procedure and preserve local
+configuration. The OpenTelemetry family upgrades together; do not install the
+new API over an older pinned SDK. Retain the previous immutable package for
+rollback. OpenTelemetry alert rules must treat absent samples as unavailable;
+the direct Prometheus `NaN` convention is unchanged. No stored-data migration is
+required; publication and automated tests do not establish physical-device
+acceptance.
+
 ## [0.1.12] - 2026-10-24
 
 ### Fixed

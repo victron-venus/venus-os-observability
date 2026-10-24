@@ -5,9 +5,11 @@ Exports inverter state metrics: SOC, power, grid, battery, loads.
 """
 
 import math
+from collections.abc import Sequence
+from threading import Lock
 from typing import Any
 
-from opentelemetry.metrics import Meter
+from opentelemetry.metrics import CallbackOptions, Meter, Observation
 from prometheus_client import Counter, Gauge, Histogram
 
 # Shared protocol identifiers keep publication and update paths consistent.
@@ -114,6 +116,39 @@ trace_propagation_errors = Counter(
 )
 
 
+class _ObservedGauge:
+    """Export current finite samples; absent samples represent unavailable data.
+
+    Recent OpenTelemetry SDKs reject NaN instead of replacing the previous
+    synchronous gauge value. Observable gauges let us omit an unavailable series
+    without publishing stale data or a fabricated zero. Direct Prometheus gauges
+    retain their existing NaN convention.
+    """
+
+    def __init__(self, meter: Meter, *, name: str, description: str, unit: str):
+        self._samples: dict[tuple[tuple[str, Any], ...], Observation] = {}
+        self._lock = Lock()
+        self._instrument = meter.create_observable_gauge(
+            name=name, description=description, unit=unit, callbacks=[self.observe]
+        )
+
+    def observe(self, _options: CallbackOptions) -> Sequence[Observation]:
+        """Return an isolated snapshot for the SDK's collection thread."""
+        with self._lock:
+            return tuple(
+                Observation(sample.value, dict(sample.attributes or {}))
+                for sample in self._samples.values()
+            )
+
+    def set(self, value: float, attributes: dict[str, Any]) -> None:
+        with self._lock:
+            self._samples[tuple(sorted(attributes.items()))] = Observation(value, attributes)
+
+    def remove(self, attributes: dict[str, Any]) -> None:
+        with self._lock:
+            self._samples.pop(tuple(sorted(attributes.items())), None)
+
+
 class VictronMetrics:
     """Victron-specific metrics collector using OpenTelemetry Meter."""
 
@@ -122,53 +157,63 @@ class VictronMetrics:
         # Retain only active series and their latest publisher. Service suffixes
         # can collide, so service loss must not invalidate another publisher.
         self._active_gauges: dict[
-            tuple[int, tuple[tuple[str, Any], ...]], tuple[str, Any, dict[str, Any]]
+            tuple[int, tuple[tuple[str, Any], ...]], tuple[str, _ObservedGauge, dict[str, Any]]
         ] = {}
 
+        self._series_lock = Lock()
+
         # Create instruments
-        self.battery_soc = meter.create_gauge(
+        self.battery_soc = _ObservedGauge(
+            meter,
             name="victron.battery.soc",
             description="Battery state of charge percentage",
             unit="%",
         )
 
-        self.battery_power = meter.create_gauge(
+        self.battery_power = _ObservedGauge(
+            meter,
             name="victron.battery.power",
             description="Battery charge/discharge power",
             unit="W",
         )
 
-        self.pv_power = meter.create_gauge(
+        self.pv_power = _ObservedGauge(
+            meter,
             name="victron.pv.power",
             description="Total PV production",
             unit="W",
         )
 
-        self.grid_power = meter.create_gauge(
+        self.grid_power = _ObservedGauge(
+            meter,
             name="victron.grid.power",
             description="Grid import/export power",
             unit="W",
         )
 
-        self.ac_loads = meter.create_gauge(
+        self.ac_loads = _ObservedGauge(
+            meter,
             name="victron.ac.loads",
             description="AC loads consumption",
             unit="W",
         )
 
-        self.inverter_state = meter.create_gauge(
+        self.inverter_state = _ObservedGauge(
+            meter,
             name="victron.inverter.state",
             description="Inverter state machine",
             unit="1",
         )
 
-        self.cell_voltage = meter.create_gauge(
+        self.cell_voltage = _ObservedGauge(
+            meter,
             name="victron.battery.cell.voltage",
             description="Individual cell voltage",
             unit="V",
         )
 
-        self.cell_temperature = meter.create_gauge(
+        self.cell_temperature = _ObservedGauge(
+            meter,
             name="victron.battery.cell.temperature",
             description="Individual cell temperature",
             unit="Cel",
@@ -243,24 +288,33 @@ class VictronMetrics:
         """Match per-phase watt paths like /Ac/Grid/L1/Power."""
         return path_lower.startswith(f"/ac/{section}/") and path_lower.endswith(POWER_SUFFIX)
 
-    def _set_gauge(self, gauge: Any, value: Any, attributes: dict[str, Any], service: str) -> None:
-        """Publish unavailable values as NaN, including Venus empty arrays."""
+    def _set_gauge(
+        self, gauge: _ObservedGauge, value: Any, attributes: dict[str, Any], service: str
+    ) -> None:
+        """Omit unavailable values, including Venus empty arrays, from OTel."""
         # OpenTelemetry accepts primitive attributes and sequences. Freeze
         # sequences so a caller cannot change a recorded series after delivery.
         attrs = {
             key: tuple(value) if isinstance(value, list | tuple) else value
             for key, value in attributes.items()
         }
-        gauge.set(_numeric_or_nan(value), attrs)
+        number = _numeric_or_nan(value)
         key = (id(gauge), tuple(sorted(attrs.items())))
-        self._active_gauges[key] = (service, gauge, attrs)
+        with self._series_lock:
+            if math.isfinite(number):
+                gauge.set(number, attrs)
+                self._active_gauges[key] = (service, gauge, attrs)
+            else:
+                gauge.remove(attrs)
+                self._active_gauges.pop(key, None)
 
     def invalidate_service(self, service: str) -> None:
         """Invalidate only existing series last published by the lost service."""
-        for key, (publisher, gauge, attrs) in tuple(self._active_gauges.items()):
-            if publisher == service:
-                gauge.set(math.nan, attrs)
-                del self._active_gauges[key]
+        with self._series_lock:
+            for key, (publisher, gauge, attrs) in tuple(self._active_gauges.items()):
+                if publisher == service:
+                    gauge.remove(attrs)
+                    del self._active_gauges[key]
 
     def _extract_serial(self, service: str) -> str:
         """Extract device serial from service name."""
