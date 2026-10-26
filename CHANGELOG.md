@@ -1,6 +1,40 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.13] - 2026-10-24
+
+### Security
+
+- Upgrade the compatible OpenTelemetry API, SDK and OTLP exporters to 1.45.1,
+  with instrumentation and Prometheus exporter 0.66b1. This fixes excessive CPU
+  use while parsing untrusted W3C `tracestate` (GHSA-xcq7-p3pf-p88h).
+- Keep the runtime, CI and fuzzing dependency exports aligned with the patched
+  API. Non-OpenTelemetry runtime dependency versions are unchanged.
+
+### Fixed
+
+- Use the actual OpenTelemetry getter/setter interfaces and W3C propagator
+  import path. Preserve explicit trace context during injection and extraction;
+  verify propagation against real SDK carriers instead of bypassing the wrapper.
+  Extraction returns isolated context without leaking correlation IDs into the
+  caller; injection honors explicit context rather than an unrelated ambient span.
+- Preserve unavailable measurements with the newer SDK: OpenTelemetry observable
+  gauges omit lost or invalid samples, including through its Prometheus reader.
+  The separate direct Prometheus gauges retain `NaN`. Other owners and phases
+  stay intact, and a later measured zero is exported normally.
+- Exercise OTLP requests through the public exporter API, including decoded wire
+  payloads, verified TLS chains, mutual TLS, proxy boundaries and HTTP shutdown.
+
+### Upgrade
+
+Use the existing package or container update procedure and preserve local
+configuration. The OpenTelemetry family upgrades together; do not install the
+new API over an older pinned SDK. Retain the previous immutable package for
+rollback. OpenTelemetry alert rules must treat absent samples as unavailable;
+the direct Prometheus `NaN` convention is unchanged. No stored-data migration is
+required; publication and automated tests do not establish physical-device
+acceptance.
+
+## [0.1.12] - 2026-10-24
 
 ### Fixed
 
@@ -17,33 +51,26 @@
   direct meter-provider shutdown and failed startup. Continue cleaning up the
   other owned components if one shutdown operation fails.
 
-### Security
-
-- Update locked `certifi` to 2026.10.19 for GHSA-6q48-6c7w-9gw2 (compromised
-  intermediate CA keys), and `virtualenv` to 21.14.9 for activation-script command
-  injection fixes CVE-2026-113725, CVE-2026-113726, CVE-2026-113732 and
-  CVE-2026-113776, plus CVE-2026-113722 / GHSA-c978-59m8-c77v. `packaging` moves to
-  26.3 to satisfy `virtualenv`'s new minimum; no other dependency versions change.
-
-### Upgrade
-
-- The public two-provider `setup_telemetry()` return value is unchanged.
-  `prometheus-client>=0.20` is now required for its HTTP lifecycle handles;
-  the locked version remains 0.26.0.
-
-## [0.1.12] - 2026-10-20
-
 ### Changed
 
 - Refresh the immutable Ubuntu 24.04 container image and update Ruff to 0.17.1. Install local validation dependencies from the same uv lock used by CI.
 
-### Upgrade
-
-Use the existing update procedure, preserve local configuration and retain the previous immutable package for rollback. No configuration migration is required.
-
 ### Security
 
-Required dependency, source and release checks remain enabled. This maintenance beta does not claim a new application vulnerability fix or device acceptance.
+- Update locked `certifi` to 2026.10.19 for GHSA-6q48-6c7w-9gw2.
+- Update development tools to `virtualenv` 21.14.13 and `filelock` 4.2.1 to address
+  the Bash prompt-expansion regression (CVE-2026-115586) and unsafe lock-database
+  path handling (CVE-2026-112940). Keep the CI requirements export synchronized
+  with the committed lock. Service credentials and access policy are unchanged.
+
+### Upgrade
+
+- The public two-provider `setup_telemetry()` return value is unchanged.
+  `prometheus-client>=0.20` is required for its HTTP lifecycle handles;
+  the locked version remains 0.26.0.
+- Use the existing update procedure, preserve local configuration and retain the
+  previous immutable package for rollback. No configuration migration is required.
+  Automated validation does not establish physical-device acceptance.
 
 ## [0.1.11] - 2026-10-18
 

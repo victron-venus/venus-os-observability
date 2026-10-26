@@ -24,6 +24,10 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+from opentelemetry.trace import SpanContext, TraceFlags
 
 from venus_observability.otlp import (
     _client_tls_context,
@@ -46,12 +50,59 @@ CHAIN_CASES = (
 )
 
 
+def export_span(exporter: SpanExporter, name: str) -> SpanExportResult:
+    """Exercise the supported exporter API and its actual OTLP serializer."""
+    span = ReadableSpan(
+        name,
+        context=SpanContext(1, 2, False, TraceFlags(1)),
+        start_time=1,
+        end_time=2,
+    )
+    return exporter.export([span])
+
+
+def exported_span_names(request: bytes) -> list[str]:
+    """Decode the captured HTTP body rather than accepting arbitrary test bytes."""
+    _, separator, body = request.partition(b"\r\n\r\n")
+    assert separator
+    message = ExportTraceServiceRequest()
+    message.ParseFromString(body)
+    return [
+        span.name
+        for resource in message.resource_spans
+        for scope in resource.scope_spans
+        for span in scope.spans
+    ]
+
+
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in os.environ:
         if name.startswith("OTEL_EXPORTER_OTLP") or name.upper().endswith("_PROXY"):
             monkeypatch.delenv(name)
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    # The public SDK retries transport failures. Keep synthetic loopback cases
+    # bounded without changing the product's timeout or certificate policy.
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "2")
+
+
+@pytest.fixture
+def transport_failures(monkeypatch: pytest.MonkeyPatch) -> list[requests.RequestException]:
+    """Observe and rethrow real transport failures before the SDK handles them."""
+    failures: list[requests.RequestException] = []
+    original_send = _HTTPSOnlySession.send
+
+    def send(
+        session: _HTTPSOnlySession, request: requests.PreparedRequest, **kwargs: Any
+    ) -> requests.Response:
+        try:
+            return original_send(session, request, **kwargs)
+        except requests.RequestException as error:
+            failures.append(error)
+            raise
+
+    monkeypatch.setattr(_HTTPSOnlySession, "send", send)
+    return failures
 
 
 def certificate(
@@ -242,6 +293,7 @@ def test_actual_exporter_verifies_entire_chain_before_sending(
     monkeypatch: pytest.MonkeyPatch,
     case: str,
     version: ssl.TLSVersion,
+    transport_failures: list[requests.RequestException],
 ) -> None:
     chain = chains.get(case, chains["strong"])
     calibrate(chain, version)
@@ -253,24 +305,26 @@ def test_actual_exporter_verifies_entire_chain_before_sending(
         exporter: Any = create_exporter(f"https://{host}:{port}")
         try:
             if case.startswith("strong"):
-                response = exporter._export(b"synthetic-span")
-                assert response.status_code == 200
-                response.close()
+                assert export_span(exporter, "synthetic-span") == SpanExportResult.SUCCESS
             else:
-                with pytest.raises(requests.exceptions.SSLError):
-                    exporter._export(b"synthetic-span")
+                assert export_span(exporter, "synthetic-span") == SpanExportResult.FAILURE
+                assert any(
+                    isinstance(error, requests.exceptions.SSLError) for error in transport_failures
+                )
         finally:
             exporter.shutdown()
     if case.startswith("strong"):
         assert b"authorization: Bearer synthetic-only" in observed["application_bytes"]
-        assert observed["application_bytes"].endswith(b"synthetic-span")
+        assert exported_span_names(observed["application_bytes"]) == ["synthetic-span"]
         assert observed["tls"] == version.name.replace("_", ".")
     else:
         assert observed["application_bytes"] == b""
 
 
 def test_redirect_does_not_send_auth_or_body_to_plaintext_target(
-    chains: dict[str, tuple[Path, Path, Path]], monkeypatch: pytest.MonkeyPatch
+    chains: dict[str, tuple[Path, Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+    transport_failures: list[requests.RequestException],
 ) -> None:
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", str(chains["strong"][2]))
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer synthetic-only")
@@ -282,8 +336,8 @@ def test_redirect_does_not_send_auth_or_body_to_plaintext_target(
         with peer(chains["strong"], ssl.TLSVersion.TLSv1_3, redirect=redirect) as (port, _):
             exporter: Any = create_exporter(f"https://localhost:{port}")
             try:
-                with pytest.raises(requests.RequestException, match="redirects are disabled"):
-                    exporter._export(b"synthetic-span")
+                assert export_span(exporter, "synthetic-span") == SpanExportResult.FAILURE
+                assert any("redirects are disabled" in str(error) for error in transport_failures)
             finally:
                 exporter.shutdown()
         with pytest.raises(TimeoutError):
@@ -299,12 +353,10 @@ def test_standard_client_certificate_configuration_is_preserved(
     with peer(chains["strong"], ssl.TLSVersion.TLSv1_3, client_auth=True) as (port, observed):
         exporter: Any = create_exporter(f"https://localhost:{port}")
         try:
-            response = exporter._export(b"mutual-tls")
-            assert response.status_code == 200
-            response.close()
+            assert export_span(exporter, "mutual-tls") == SpanExportResult.SUCCESS
         finally:
             exporter.shutdown()
-    assert observed["application_bytes"].endswith(b"mutual-tls")
+    assert exported_span_names(observed["application_bytes"]) == ["mutual-tls"]
 
 
 @pytest.fixture(scope="module")
@@ -362,17 +414,16 @@ def test_exact_client_key_boundary_before_http(
     monkeypatch: pytest.MonkeyPatch,
     combined: bool,
     version: ssl.TLSVersion,
+    transport_failures: list[requests.RequestException],
 ) -> None:
     configure_client_files(client_chains, "strong", combined, tmp_path, monkeypatch)
     with peer(client_chains["server"], version, client_auth=True) as (port, observed):
         exporter: Any = create_exporter(f"https://localhost:{port}")
         try:
-            response = exporter._export(b"strong-client-span")
-            assert response.status_code == 200
-            response.close()
+            assert export_span(exporter, "strong-client-span") == SpanExportResult.SUCCESS
         finally:
             exporter.shutdown()
-    assert observed["application_bytes"].endswith(b"strong-client-span")
+    assert exported_span_names(observed["application_bytes"]) == ["strong-client-span"]
     assert observed["client_certificate"] == client_chains["certificates"]["strong"].public_bytes(
         serialization.Encoding.DER
     )
@@ -385,8 +436,10 @@ def test_exact_client_key_boundary_before_http(
         listener.settimeout(0.1)
         exporter = create_exporter(f"https://localhost:{listener.getsockname()[1]}")
         try:
-            with pytest.raises(requests.exceptions.SSLError):
-                exporter._export(b"must-not-leave")
+            assert export_span(exporter, "must-not-leave") == SpanExportResult.FAILURE
+            assert any(
+                isinstance(error, requests.exceptions.SSLError) for error in transport_failures
+            )
         finally:
             exporter.shutdown()
         with pytest.raises(TimeoutError):
@@ -429,10 +482,10 @@ def test_client_snapshot_survives_original_replacement_and_is_cleaned(
         exporter: Any = create_exporter(f"https://localhost:{port}")
         try:
             with patch.object(ssl.SSLContext, "load_cert_chain", replace_original):
-                response = exporter._export(b"snapshot-client-span")
-                response.close()
+                assert export_span(exporter, "snapshot-client-span") == SpanExportResult.SUCCESS
         finally:
             exporter.shutdown()
+    assert exported_span_names(observed["application_bytes"]) == ["snapshot-client-span"]
     assert observed["client_certificate"] == client_chains["certificates"]["strong"].public_bytes(
         serialization.Encoding.DER
     )
@@ -625,6 +678,7 @@ def test_proxy_cannot_bypass_origin_chain_policy(
     tmp_path: Path,
     encrypted_proxy: bool,
     case: str,
+    transport_failures: list[requests.RequestException],
 ) -> None:
     bundle = tmp_path / "roots.pem"
     bundle.write_bytes(chains["strong"][2].read_bytes() + chains[case][2].read_bytes())
@@ -638,22 +692,26 @@ def test_proxy_cannot_bypass_origin_chain_policy(
         exporter: Any = create_exporter(f"https://localhost:{port}")
         try:
             if case == "strong":
-                response = exporter._export(b"proxy-span")
-                assert response.status_code == 200
-                response.close()
+                assert export_span(exporter, "proxy-span") == SpanExportResult.SUCCESS
             else:
-                with pytest.raises(
-                    requests.exceptions.ProxyError, match="OTLP HTTPS transport failed"
-                ):
-                    exporter._export(b"proxy-span")
+                assert export_span(exporter, "proxy-span") == SpanExportResult.FAILURE
+                assert any(
+                    isinstance(error, requests.exceptions.ProxyError)
+                    for error in transport_failures
+                )
         finally:
             exporter.shutdown()
     assert len(observed) == 1
-    assert received["application_bytes"].endswith(b"proxy-span") == (case == "strong")
+    if case == "strong":
+        assert exported_span_names(received["application_bytes"]) == ["proxy-span"]
+    else:
+        assert received["application_bytes"] == b""
 
 
 def test_weak_https_proxy_rejected_before_connect_request(
-    chains: dict[str, tuple[Path, Path, Path]], monkeypatch: pytest.MonkeyPatch
+    chains: dict[str, tuple[Path, Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+    transport_failures: list[requests.RequestException],
 ) -> None:
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", str(chains["weak-2047-root"][2]))
     # No origin server is needed: the unaccepted proxy must not receive CONNECT.
@@ -661,8 +719,10 @@ def test_weak_https_proxy_rejected_before_connect_request(
         monkeypatch.setenv("HTTPS_PROXY", f"https://localhost:{port}")
         exporter: Any = create_exporter("https://localhost:1")
         try:
-            with pytest.raises(requests.exceptions.ProxyError, match="OTLP HTTPS transport failed"):
-                exporter._export(b"must-not-leave")
+            assert export_span(exporter, "must-not-leave") == SpanExportResult.FAILURE
+            assert any(
+                isinstance(error, requests.exceptions.ProxyError) for error in transport_failures
+            )
         finally:
             exporter.shutdown()
     assert observed == []

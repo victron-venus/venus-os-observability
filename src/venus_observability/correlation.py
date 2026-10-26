@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.baggage import set_baggage
+from opentelemetry.baggage import get_baggage, set_baggage
 from opentelemetry.context import Context
 from opentelemetry.propagators import textmap
 
@@ -163,51 +163,69 @@ class CorrelationIDPropagator(textmap.TextMapPropagator):
     Can be registered with OpenTelemetry for automatic propagation.
     """
 
-    # type: ignore[override] - signature mismatch with parent class
     def extract(
         self,
         carrier: textmap.CarrierT,
-        getter: textmap.Getter[textmap.CarrierT] = textmap.default_getter,
         context: Context | None = None,
+        getter: textmap.Getter[textmap.CarrierT] = textmap.default_getter,
     ) -> Context:
         """Extract trace context and correlation ID from carrier."""
-        headers_dict: dict[str, str] = dict(getter(carrier))
+        headers_dict: dict[str, str] = {}
+        for key in getter.keys(carrier):
+            values = getter.get(carrier, key)
+            if values:
+                headers_dict[key] = values[0]
         correlation_id = extract_correlation_id_from_headers(headers_dict)
 
-        if correlation_id:
-            # Set in context variable
-            _ = set_correlation_id(correlation_id)
-            # Note: token should be stored and reset after processing
-
+        # Extraction returns a context; it must not attach it or mutate the
+        # caller's ambient ContextVar while inspecting an unrelated carrier.
         # Delegate to standard W3C propagator for trace context
-        from opentelemetry.propagators.tracecontext import TraceContextTextMapPropagator
+        from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
         w3c = TraceContextTextMapPropagator()
-        return w3c.extract(carrier, getter, context)  # type: ignore[no-any-return,operator]
+        extracted = w3c.extract(carrier, context=context, getter=getter)
+        if correlation_id:
+            extracted = set_baggage("correlation-id", correlation_id, context=extracted)
+        return extracted
 
-    # type: ignore[override] - signature mismatch with parent class
     def inject(
         self,
         carrier: textmap.CarrierT,
-        setter: textmap.Setter[textmap.CarrierT] = textmap.default_setter,
         context: Context | None = None,
+        setter: textmap.Setter[textmap.CarrierT] = textmap.default_setter,
     ) -> None:
         """Inject trace context and correlation ID into carrier."""
-        # Get correlation ID from context or current span
-        correlation_id = get_correlation_id()
-        trace_context = get_current_trace_context()
+        # Explicit contexts are isolated from ambient correlation/span state.
+        # Non-recording spans still carry valid propagation identifiers.
+        span_context = trace.get_current_span(context).get_span_context()
+        trace_context = None
+        if span_context.is_valid:
+            trace_context = {
+                "trace_id": format(span_context.trace_id, "032x"),
+                "span_id": format(span_context.span_id, "016x"),
+                "trace_flags": format(span_context.trace_flags, "02x"),
+                "trace_state": span_context.trace_state.to_header(),
+            }
+        baggage_id = get_baggage("correlation-id", context=context)
+        correlation_id = baggage_id if isinstance(baggage_id, str) and baggage_id else None
+        if correlation_id is None and context is None:
+            correlation_id = get_correlation_id()
+        if correlation_id is None:
+            correlation_id = (
+                trace_context["trace_id"] if trace_context else generate_correlation_id()
+            )
 
         headers: dict[str, str] = {}
         inject_correlation_id_into_headers(headers, correlation_id, trace_context)
 
         for key, value in headers.items():
-            setter(carrier, key, value)  # type: ignore[operator]
+            setter.set(carrier, key, value)
 
         # Also inject standard W3C trace context
-        from opentelemetry.propagators.tracecontext import TraceContextTextMapPropagator
+        from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
         w3c = TraceContextTextMapPropagator()
-        w3c.inject(carrier, setter, context)  # type: ignore[operator]
+        w3c.inject(carrier, context=context, setter=setter)
 
     @property
     def fields(self) -> set[str]:
