@@ -30,5 +30,23 @@ jobs:
       - name: Build and smoke test the alert bridge image
         run: |
           docker build --tag venus-alert-bridge:ci alert-mqtt-bridge
-          docker run --rm --network none --entrypoint python venus-alert-bridge:ci -c "import relay; from cryptography import x509; relay.verified_context()"
+          docker run --rm -i --network none --entrypoint python venus-alert-bridge:ci - <<'PY'
+          import sys
+          from importlib.metadata import version
+          import paho.mqtt.client as mqtt
+          import relay
+          from cryptography import x509
+
+          assert sys.version_info[:2] == (3, 15)
+          assert version("paho-mqtt") == "2.1.0"
+          assert relay.client.callback_api_version == mqtt.CallbackAPIVersion.VERSION1
+          relay.client.on_connect(relay.client, None, {}, 0)
+          assert relay._connect_event.is_set()
+          relay.client.on_disconnect(relay.client, None, 0)
+          assert not relay._connect_event.is_set()
+          relay.client.on_connect(relay.client, None, {}, 3)
+          assert not relay._connect_event.is_set()
+          relay.verified_context()
+          print("Python 3.15, Paho callbacks and TLS dependencies verified offline")
+          PY
     timeout-minutes: 30
