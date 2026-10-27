@@ -7,6 +7,14 @@
 - Refresh the MQTT alert bridge to paho-mqtt 2.1.0 and the pinned Python 3.15 Alpine runtime.
 - Preserve hash-locked wheel installation and validate the updated bridge and package dependency closure.
 
+### Upgrade
+
+Update the package or container using the committed dependency closure and preserve local configuration. Retain the previous immutable package for rollback, then verify MQTT alert delivery against the intended test broker. No stored-data migration is required; existing unavailable-sample conventions and alert rules still apply.
+
+### Security
+
+Keep MQTT credentials protected and retain the configured broker authentication and transport verification. The alert-bridge and image refresh does not change these trust requirements or establish production delivery/device acceptance; no additional vulnerability fix is claimed.
+
 ## [0.1.13] - 2026-10-24
 
 ### Security
