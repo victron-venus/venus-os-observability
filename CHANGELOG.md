@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14] - 2026-10-27
+
+### Changed
+
+- Refresh the MQTT alert bridge to paho-mqtt 2.1.0 and the pinned Python 3.15 Alpine runtime.
+- Preserve hash-locked wheel installation and validate the updated bridge and package dependency closure.
+
 ## [0.1.13] - 2026-10-24
 
 ### Security
