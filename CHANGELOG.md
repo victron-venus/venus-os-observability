@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Update the OpenTelemetry family together to 1.45.2/0.66b2 and mypy to 2.4.1; regenerate every committed dependency export from the same lock.
+
 - Refresh the MQTT alert bridge to paho-mqtt 2.1.0 and the pinned Python 3.15 Alpine runtime.
 - Preserve hash-locked wheel installation and validate the updated bridge and package dependency closure.
 
