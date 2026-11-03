@@ -2,6 +2,7 @@
 
 import threading
 from collections.abc import Callable, Iterator
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -59,7 +60,7 @@ class FakeLoop:
 @pytest.fixture
 def lifecycle(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[DBusSignalListener, FakeLoop]]:
     loop = FakeLoop()
-    monkeypatch.setattr("venus_observability.dbus_listener.GLib.MainLoop", loop.construct)
+    monkeypatch.setattr(dbus_listener, "GLib", SimpleNamespace(MainLoop=loop.construct))
     listener = DBusSignalListener(MagicMock(), bus=MagicMock(), tracer=MagicMock())
     try:
         yield listener, loop
