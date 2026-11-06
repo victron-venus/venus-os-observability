@@ -1,6 +1,122 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>victron-venus/venus-os-ci-toolkit:renovate-ci"
-  ]
+    "local>victron-venus/venus-os-ci-toolkit:renovate-fleet"
+  ],
+  "enabledManagers": [
+    "custom.jsonata",
+    "custom.regex",
+    "docker-compose",
+    "dockerfile",
+    "github-actions",
+    "pep621",
+    "pip-compile",
+    "pip_requirements",
+    "pip_setup"
+  ],
+  "ignorePaths": [
+    "**/vendor/**",
+    "**/node_modules/**",
+    "**/fixtures/**",
+    "**/tools/browser-compatibility/**",
+    "security/provider/**",
+    "build-support/tls-armv7/**",
+    ".github/requirements-ci.txt",
+    ".github/requirements-release-build.txt",
+    ".github/requirements-release-security.txt",
+    ".github/requirements-runtime.txt"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "matchFileNames": [
+        "/^[^/]+$/"
+      ],
+      "matchPackageNames": [
+        "ubuntu"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Generated lock outputs are refreshed with their existing source workflow; their uv command headers are not supported by the pinned pip-compile manager.",
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        ".github/requirements-ci.txt",
+        ".github/requirements-release-build.txt",
+        ".github/requirements-release-security.txt",
+        ".github/requirements-runtime.txt"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep the project lock and exported runtime dependency files in the same reviewed update.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchFileNames": [
+        "pyproject.toml"
+      ],
+      "constraints": {
+        "uv": "0.13.4"
+      },
+      "postUpgradeTasks": {
+        "commands": [
+          "uv export --locked --offline --no-build --no-default-groups --no-emit-project --output-file .github/requirements-runtime.txt",
+          "uv export --locked --offline --no-build --extra dev --group build --group security --no-emit-project --output-file .github/requirements-ci.txt",
+          "uv export --locked --offline --no-build --only-group build --no-emit-project --output-file .github/requirements-release-build.txt",
+          "uv export --locked --offline --no-build --only-group security --no-emit-project --output-file .github/requirements-release-security.txt"
+        ],
+        "fileFilters": [
+          ".github/requirements-runtime.txt",
+          ".github/requirements-ci.txt",
+          ".github/requirements-release-build.txt",
+          ".github/requirements-release-security.txt"
+        ],
+        "executionMode": "update",
+        "installTools": {
+          "uv": {}
+        }
+      }
+    }
+  ],
+  "pip_requirements": {
+    "managerFilePatterns": [
+      "/(^|/)requirements[^/]*\\.(txt|pip)$/"
+    ],
+    "ignorePaths": [
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/fixtures/**",
+      "**/tools/browser-compatibility/**",
+      "security/provider/**",
+      "build-support/tls-armv7/**",
+      ".github/requirements-ci.txt",
+      ".github/requirements-fuzz.txt",
+      ".github/requirements-release-build.txt",
+      ".github/requirements-release-security.txt",
+      ".github/requirements-runtime.txt",
+      "alert-mqtt-bridge/requirements-build.txt",
+      "alert-mqtt-bridge/requirements-tls.txt"
+    ]
+  },
+  "description": [
+    "Ubuntu major and minor upgrades require an explicit Python/native ABI migration.",
+    "GitHub vulnerability alerts and normal scheduled updates remain enabled; automatic security overrides must not bypass these constraints."
+  ],
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^alert\\-mqtt\\-bridge/requirements\\-build\\.txt$/",
+      "/^alert\\-mqtt\\-bridge/requirements\\-tls\\.txt$/",
+      "/^\\.github/requirements\\-fuzz\\.txt$/"
+    ]
+  }
 }

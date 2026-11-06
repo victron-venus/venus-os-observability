@@ -18,7 +18,7 @@ runtime environment and Ubuntu's matching Python/D-Bus/GI packages. Container
 base digests remain pinned; Ubuntu package installation still follows its
 security-update repositories.
 
-To update dependencies with uv 0.12.18, review the `uv.lock` diff and regenerate
+To update dependencies with uv 0.13.4, review the `uv.lock` diff and regenerate
 all four exports together:
 
 ```sh
@@ -45,5 +45,24 @@ creates the wheel without isolation, and the final image installs that wheel
 offline. Regenerate its build lock separately:
 
 ```sh
-uv pip compile --universal --python-version 3.14 --generate-hashes --only-binary :all: alert-mqtt-bridge/requirements-build.in -o alert-mqtt-bridge/requirements-build.txt
+uv pip compile --universal --python-version=3.14 --generate-hashes alert-mqtt-bridge/requirements-wheels-only.in alert-mqtt-bridge/requirements-build.in --output-file=alert-mqtt-bridge/requirements-build.txt
+```
+
+## Coupled automatic updates
+
+Renovate updates the project manifest and `uv.lock`, then regenerates the exports
+below with uv 0.13.4 before committing the dependency update. The reviewed runner
+allows only these fixed commands, executes them without a shell, and retains only
+the listed output files. Each command checks source/lock consistency offline and
+disables package builds; an outdated lock fails without rewriting the output.
+
+For a manual dependency update, edit the manifest and run `uv lock` first, then
+run the same export commands and the repository's normal checks. Commit the
+manifest, lock and generated exports together.
+
+```sh
+uv export --locked --offline --no-build --no-default-groups --no-emit-project --output-file .github/requirements-runtime.txt
+uv export --locked --offline --no-build --extra dev --group build --group security --no-emit-project --output-file .github/requirements-ci.txt
+uv export --locked --offline --no-build --only-group build --no-emit-project --output-file .github/requirements-release-build.txt
+uv export --locked --offline --no-build --only-group security --no-emit-project --output-file .github/requirements-release-security.txt
 ```
