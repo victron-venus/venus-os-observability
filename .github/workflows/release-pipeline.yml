@@ -269,9 +269,9 @@ jobs:
   fuzz:
     needs: prepare
     if: ${{ needs.prepare.outputs.build == 'true' && github.event.repository.private == false && github.event_name == 'workflow_dispatch' && github.event.inputs.channel == 'rc' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-    uses: victron-venus/venus-os-ci-toolkit/.github/workflows/fuzz.yml@5d50e8bac72aa8a72fcada375524ba44db9a3962 # main
+    uses: victron-venus/venus-os-ci-toolkit/.github/workflows/fuzz.yml@f54201ae71e91d85514bb16ed1ffdf31b82b149f # main
     with:
-      toolkit-ref: 5d50e8bac72aa8a72fcada375524ba44db9a3962
+      toolkit-ref: f54201ae71e91d85514bb16ed1ffdf31b82b149f
       release-plan-artifact: ${{ needs.prepare.outputs.plan_artifact }}
     permissions:
       contents: read
