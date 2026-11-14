@@ -208,7 +208,7 @@ def peer(
                                 "Content-Length: 2\r\nConnection: close\r\n\r\nOK"
                             ).encode()
                         )
-            except (ssl.SSLError, ConnectionResetError):
+            except (ssl.SSLError, ConnectionResetError, BrokenPipeError):
                 pass  # Client rejection is separately checked against a successful TLS oracle.
             except Exception as error:
                 failures.append(error)
