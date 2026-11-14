@@ -30,7 +30,10 @@ jobs:
       - name: Build and smoke test the alert bridge image
         run: |
           docker build --tag venus-alert-bridge:ci alert-mqtt-bridge
-          docker run --rm -i --network none --entrypoint python venus-alert-bridge:ci - <<'PY'
+          expected_paho="$(awk -F'==' '$1 == "paho-mqtt" { split($2, fields, /[[:space:]]/); print fields[1] }' alert-mqtt-bridge/requirements.txt)"
+          [[ "$expected_paho" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          docker run --rm -i --network none --env "EXPECTED_PAHO_VERSION=$expected_paho" --entrypoint python venus-alert-bridge:ci - <<'PY'
+          import os
           import sys
           from importlib.metadata import version
           import paho.mqtt.client as mqtt
@@ -38,7 +41,7 @@ jobs:
           from cryptography import x509
 
           assert sys.version_info[:2] == (3, 15)
-          assert version("paho-mqtt") == "2.1.0"
+          assert version("paho-mqtt") == os.environ["EXPECTED_PAHO_VERSION"]
           assert relay.client.callback_api_version == mqtt.CallbackAPIVersion.VERSION1
           relay.client.on_connect(relay.client, None, {}, 0)
           assert relay._connect_event.is_set()
