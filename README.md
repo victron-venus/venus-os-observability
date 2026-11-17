@@ -11,6 +11,8 @@ OpenTelemetry/Prometheus observability for Victron Venus OS: D-Bus signal tracin
 
 [Image source and regeneration](docs/images/README.md).
 
+Docs index: [docs/README.md](docs/README.md).
+
 ## Python runtime
 
 Native Venus OS packages target **Python 3.12.x**. The audited Raspberry Pi 3
