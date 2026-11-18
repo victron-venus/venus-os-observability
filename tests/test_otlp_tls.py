@@ -610,7 +610,10 @@ def test_tls_floor_preserves_stricter_defaults(level: int) -> None:
 
 @contextmanager
 def proxy(
-    target_port: int, chain: tuple[Path, Path, Path] | None
+    target_port: int,
+    chain: tuple[Path, Path, Path] | None,
+    *,
+    expect_proxy_rejection: bool = False,
 ) -> Iterator[tuple[int, list[bytes]]]:
     """A bounded CONNECT relay whose only permitted destination is our loopback peer."""
     observed: list[bytes] = []
@@ -621,6 +624,7 @@ def proxy(
         listener.settimeout(5)
 
         def worker() -> None:
+            request = b""
             try:
                 raw, _ = listener.accept()
                 with raw:
@@ -634,7 +638,6 @@ def proxy(
                     else:
                         incoming = raw
                     with incoming:
-                        request = b""
                         while b"\r\n\r\n" not in request:
                             data = incoming.recv(8192)
                             if not data:
@@ -657,6 +660,10 @@ def proxy(
             except ssl.SSLError:
                 # TLS clients may reject this proxy certificate or close its tunnel.
                 pass
+            except BrokenPipeError as error:
+                # A rejecting client can close while TLS still writes to it.
+                if not expect_proxy_rejection or request:
+                    errors.append(error)
             except Exception as error:
                 errors.append(error)
 
@@ -668,6 +675,25 @@ def proxy(
             thread.join(6)
             assert not thread.is_alive()
             assert not errors, errors
+
+
+def test_proxy_fixture_accepts_broken_pipe_only_when_expecting_rejection(
+    chains: dict[str, tuple[Path, Path, Path]],
+) -> None:
+    with patch.object(ssl.SSLContext, "wrap_socket", side_effect=BrokenPipeError):
+        with (
+            proxy(1, chains["strong"], expect_proxy_rejection=True) as (port, observed),
+            socket.create_connection(("127.0.0.1", port), timeout=2),
+        ):
+            pass
+        assert observed == []
+
+        with (
+            pytest.raises(AssertionError, match="BrokenPipeError"),
+            proxy(1, chains["strong"]) as (port, _),
+            socket.create_connection(("127.0.0.1", port), timeout=2),
+        ):
+            pass
 
 
 @pytest.mark.parametrize("encrypted_proxy", [False, True])
@@ -715,7 +741,7 @@ def test_weak_https_proxy_rejected_before_connect_request(
 ) -> None:
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", str(chains["weak-2047-root"][2]))
     # No origin server is needed: the unaccepted proxy must not receive CONNECT.
-    with proxy(1, chains["weak-2047-root"]) as (port, observed):
+    with proxy(1, chains["weak-2047-root"], expect_proxy_rejection=True) as (port, observed):
         monkeypatch.setenv("HTTPS_PROXY", f"https://localhost:{port}")
         exporter: Any = create_exporter("https://localhost:1")
         try:
