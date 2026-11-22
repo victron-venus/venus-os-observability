@@ -560,9 +560,9 @@ types-atheris==3.1.0.20261119 \
     --hash=sha256:5ca523a7e61511ef49bd67e4f54d7c635e33f547b3d91bf7dda974448b07421f \
     --hash=sha256:7de40ccce1c8f58aa15615356e4c24f7e8e0b6db65c607c67fbe2e4fb3d8af26
     # via venus-os-observability
-types-setuptools==84.2.0.20261104 \
-    --hash=sha256:1ec758bbeddf88d52f963fe663beabc2117b6aae73cf3d2902d7dd0df81bd76e \
-    --hash=sha256:23e9bf876adca8df2285a68f76c355128b1e679b27cfec4854faf350cd7999e5
+types-setuptools==84.2.0.20261122 \
+    --hash=sha256:5c513edc18ac4e5feb11204c379e15c26b849127f569e8d5284e380986cbdcc8 \
+    --hash=sha256:b8cec8f40ad925233859f59922d6cf3df069f31530394a429604cb9521b69ea7
     # via venus-os-observability
 typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
