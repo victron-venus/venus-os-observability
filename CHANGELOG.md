@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.15] - Unreleased
+
+### Changed
+
+- Keep the OTLP proxy rejection fixture deterministic (#165).
+- keep local instruction files out of git.
+- add a navigation index for docs/.
+- add line-ending and language attributes.
+- isolate every auto-merge base edit (#155).
+- preserve merge identity and withdrawn auto-merge requests (#154).
+- validate the toolkit before scope regeneration (#148).
+- limit documentation pull requests to relevant checks (#147).
+- migrate dependency updates to Renovate (#146).
+- reconcile lost creation responses (#143).
+
+### Upgrade
+
+Update the package or container using the committed dependency closure and preserve local configuration. Retain the previous immutable package for rollback, then verify MQTT alert delivery against the intended test broker. No stored-data migration is required; existing unavailable-sample conventions and alert rules still apply.
+
+### Security
+
+Keep MQTT credentials protected and retain the configured broker authentication and transport verification. The alert-bridge and image refresh does not change these trust requirements or establish production delivery/device acceptance; no additional vulnerability fix is claimed.
+
 ## [0.1.14] - 2026-10-27
 
 ### Changed
